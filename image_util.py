@@ -1,7 +1,7 @@
 """
 Class for representing synthetic images for testing homography estimation.
 Uses Harris corner detection to find corners in the image, and extracts local feature descriptors (histograms)
-for each corner.  The descriptors can be compared using the Symetrized Kulback-Leibler divergence.
+for each corner.  The descriptors can be compared using a variety of metrics.
 """
 import cv2
 import numpy as np
@@ -16,7 +16,7 @@ class TestImage(object):
     Generate a test image with a known transformation between it and a second image.
     Perform (Harris) corner detection tuned for this kind of image.
     Extract local feature descriptors (represented internally as histograms, somewhat invariant to this restricted set of images)
-    Compare two descriptors (using Symetrized Kulback-Leibler divergence) to return a score.
+    Compare two descriptors to return a score.
     """
 
     def __init__(self, size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
@@ -26,22 +26,22 @@ class TestImage(object):
         :param n_circle_colors: the number of colors to use for the circles
         :param n_rect_colors: the number of colors to use for the rectangles
         """
-        self.size=size
+        self.size = size
         self.img, self.palette = draw_img(size, n_rects, n_circle_colors, n_rect_colors)
         self._init()
 
     def _init(self):
         self.n_colors = self.palette.shape[0]
         self.rgb_img = self.palette[self.img].astype(self.palette.dtype)
-        self.gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        self.gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
 
     def transform(self, noise_frac):
         """
-        Create anew TestImage from self.
+        Create a new TestImage by randomly transforming the current image.
         :param image: a 2d array of pixel values, each in [0, palette.shape[0])
         :param noise_frac: the fraction of pixels to randomly change
         """
-        img2, transf  = transform_img(self.img, noise_frac, max_color_ind=self.n_colors)
+        img2, transf = transform_img(self.img, noise_frac, max_color_ind=self.n_colors)
         r = TestImage(size=self.size)
         r.img = img2
         r.palette = self.palette
@@ -50,7 +50,20 @@ class TestImage(object):
 
     @staticmethod
     def compare_descriptors(hist1, hist2):
-        return 0.5 * (np.sum(hist1 * np.log(hist1 / hist2)) + np.sum(hist2 * np.log(hist2 / hist1)))
+        # Symmetric Kullback-Leibler divergence:
+        # return 0.5 * (np.sum(hist1 * np.log(hist1 / hist2)) + np.sum(hist2 * np.log(hist2 / hist1)))
+
+        # Bhattacharyya distance:
+        # return -np.log(np.sum(np.sqrt(hist1 * hist2)))
+    
+        # Chi-squared distance:
+        return 0.5 * np.sum((hist1 - hist2)**2 / (hist1 + hist2))
+
+        # dot product of max-normalized histograms
+        #hist1 /= np.max(hist1)
+        #hist2 /= np.max(hist2)
+        return -np.dot(hist1, hist2)
+    
 
     def get_patch(self, x, y, patch_size, which='index'):
         if which not in ['index', 'rgb']:
@@ -60,7 +73,7 @@ class TestImage(object):
         src = self.img if which == 'index' else self.rgb_img
         return src[y-patch_size:y+patch_size, x-patch_size:x+patch_size]
 
-    def get_patch_descriptor(self, x, y, patch_size, smoothing=0.1):
+    def get_patch_descriptor(self, x, y, patch_size, smoothing=1):
         """
         Get the histogram of the patch around a point.
         :param x: x-coordinate of the center of the patch
@@ -69,7 +82,7 @@ class TestImage(object):
         :param smoothing: a small value to add to each bin to avoid dividing by zero in the histogram comparison
         """
         window = self.get_patch(x, y, patch_size)
-        hist = np.array([np.sum(window == i) for i in range(self.n_colors)]).reshape(-1)
+        hist = np.array([np.sum(window == i) for i in range(self.n_colors)], dtype=np.float32).reshape(-1)
         hist += smoothing
         hist /= np.sum(hist)
         return hist
@@ -106,48 +119,77 @@ class TestImage(object):
 
         # Define the criteria to stop and refine the corners
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-        corners = cv2.cornerSubPix(self.gray, np.float32(
-            centroids), (5, 5), (-1, -1), criteria)
+
+        try:
+            corners = cv2.cornerSubPix(self.gray, np.float32(
+                centroids), (5, 5), (-1, -1), criteria)
+        except cv2.error:
+            # print min/max x/y of centroids
+            print("Error in cornerSubPix: ", centroids.min(axis=0), centroids.max(axis=0))
+            print("returning centroids without subpixel refinement.")
+            print("\tCentroid range: ", centroids.min(axis=0), centroids.max(axis=0))
+            print("\tNumber of centroids found: ", len(centroids))
+            return centroids
 
         # Filter out corners near the edge
         corners = corners[(corners[:, 0] > margin) & (corners[:, 0] < self.img.shape[1]-margin) &
                           (corners[:, 1] > margin) & (corners[:, 1] < self.img.shape[0]-margin)]
         return corners
 
+    def plot(self, ax=None):
+        """
+        Plot the image (RGB & grayscale) side by side.
+        :param ax: the axis to plot in (if None, create a new figure)
+        """
+        if ax is None:
+            fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(self.rgb_img)
+        ax[0].set_title('RGB')
+        ax[1].imshow(self.gray, cmap='gray')
+        ax[1].set_title('Grayscale')
+        return ax
 
-def _test_corner_detector():
+
+def _test_image(plot=False):
+    q_img1 = TestImage((400, 400))
+    if plot:
+        q_img1.plot()
+        plt.suptitle('Test Image', fontsize=16)
+        plt.show()
+    return q_img1
+
+
+def _test_corner_detector(q_img1, plot=False):
     """
-    Create a 400x400 test image pair, find corners, and show the results in a plot.
+    Transform TestImage to create pair, find corners, and show the results in a plot.
     return images and detected corners
     """
     args = dict(blockSize=2,
                 ksize=3,
                 k=0.04)
 
-    q_img1 = TestImage((400, 400))
     q_img2, transf = q_img1.transform(0.02)
     img1, img2 = q_img1.rgb_img, q_img2.rgb_img
 
-    # _disp_image_pair(q_img1, q_img2)
-
     # find corners in both images & plot them
-    corners1 = q_img1.find_corners(margin=10, harris_kwargs=args) 
+    corners1 = q_img1.find_corners(margin=10, harris_kwargs=args)
     corners2 = q_img2.find_corners(margin=10, harris_kwargs=args)
 
-    fig, ax = plt.subplots(1, 2)
-    ax[0].imshow(cv2.cvtColor(img1, cv2.COLOR_BGR2RGB))
-    ax[0].scatter(corners1[:, 0], corners1[:, 1], color='r', s=50)
-    ax[0].set_title('Image 1')
-    ax[1].imshow(cv2.cvtColor(img2, cv2.COLOR_BGR2RGB))
-    ax[1].scatter(corners2[:, 0], corners2[:, 1], color='r', s=50)
-    ax[1].set_title('Image 2')
+    if plot:
+        _, ax = plt.subplots(1, 2)
+        ax[0].imshow(img1)
+        ax[0].scatter(corners1[:, 0], corners1[:, 1], color='r', s=50)
+        ax[0].set_title('Image 1')
+        ax[1].imshow(img2)
+        ax[1].scatter(corners2[:, 0], corners2[:, 1], color='r', s=50)
+        ax[1].set_title('Image 2 = f(Image 1)')
+        plt.suptitle('Test Corner Detection', fontsize=16)
+        plt.show()
 
-    plt.show()
-
-    return (q_img1, corners1), (q_img2, corners2)
+    return (q_img1, corners1), (q_img2, corners2), transf
 
 
-def _test_similarity_metric(data1, data2):
+def _test_similarity_metric(data1, data2, transf, plot=False):
     """
     Create a dataset, image pair. find corners, extract histograms, and create pairwise similarity matrix.
     Show a grid showing up to the first 10 of those corner windows on the top row, and below each, the
@@ -157,82 +199,112 @@ def _test_similarity_metric(data1, data2):
 
     """
     n_color_bins = 5
-    n_cols_max = 8
 
     # Number of examples to show (set to 1 to see the best and worst, etc)
-    n_ex = 2
     qimg1, corners1 = data1
     qimg2, corners2 = data2
     img1, img2 = qimg1.rgb_img, qimg2.rgb_img
 
-    window_size = 20
-    # Extract histograms for each corner
-    windows1 = _get_corner_windows(img1, corners1, window_size)
-    windows2 = _get_corner_windows(img2, corners2, window_size)
+    window_size = 21  # size of the window around each corner to extract a descriptor (pixels)
 
-    hist1 = np.array([get_window_histogram(window, n_bins=n_color_bins)
-                     for window in windows1])
-    hist2 = np.array([get_window_histogram(window, n_bins=n_color_bins)
-                     for window in windows2])
+    # Detect corners and extract descriptors for each corner
+    hist1 = np.array([qimg1.get_patch_descriptor(x, y, window_size)
+                      for x, y in corners1])
+    hist2 = np.array([qimg2.get_patch_descriptor(x, y, window_size)
+                      for x, y in corners2])
 
-    # Compare histograms
-    similarity = np.array([[compare_histograms(h1, h2)
-                          for h2 in hist2] for h1 in hist1])
+    # Compute the similarity between each pair of descriptors
+    similarity = np.array([[TestImage.compare_descriptors(hist1[i], hist2[j])
+                            for j in range(len(hist2))] for i in range(len(hist1))])
 
     # show the first few corners of image1 and (up to) their top 8 matches in image2, in descending order of similarity
-    n_cols = np.min([n_cols_max, len(corners1)])
-    n_rows = 1 + 2 * n_ex
-    fig, ax = plt.subplots(n_rows, n_cols)
-    for i in range(n_cols):
-        ax[0, i].imshow(cv2.cvtColor(windows1[i], cv2.COLOR_BGR2RGB))
-        ax[0, i].axis('off')
+    # Next to each image show the histogram.
+    palette = qimg1.palette.astype(np.float32) / 255.
 
-        def _plot_match(j, idx):
-            ax[j, i].imshow(cv2.cvtColor(windows2[idx], cv2.COLOR_BGR2RGB))
-            ax[j, i].axis('off')
-            ax[j, i].text(0, window_size, '%.2f' %
-                          similarity[i, idx], color='k', fontsize=10, va='top')
+    def _plot_hist(ax, hist):
+        """
+        Bar graph using the color palette.
+        :param hist:  The array of histogram counts (normalized).
+        """
+        ax.bar(range(len(hist)), hist, color=palette, width=7)
+        ax.axis('off')
+
+    def _plot_patch(ax, patch, score=None):
+        """
+        Show a patch with a score (if given)
+        """
+        ax.imshow((patch))
+        ax.axis('off')
+        if score is not None:
+            ax.text(0, window_size, '%.2f' % score, color='k', fontsize=10, va='top')
+
+    # Plot a few corners from image1 and their best and worst matches in image2
+    n_corner_examples = 8
+    n_match_examples = 4
+    n_worst_examples = 2
+    n_cols = np.min([n_corner_examples, len(corners1)]) * 2  # for image and histogram
+    n_rows = 1 + n_worst_examples + n_match_examples  # for best and worst matches
+    fig, ax = plt.subplots(n_rows, n_cols)
+    for i in range(n_corner_examples):
+
+        # show the corner at the top
+        x, y = corners1[i]
+        window = qimg1.get_patch(x, y, window_size, which='rgb')
+        _plot_patch(ax[0, i*2], window)
+        _plot_hist(ax[0, i*2+1], hist1[i])
 
         # show the best
-        for j, idx in enumerate(np.argsort(similarity[i])[:n_ex]):
-            _plot_match(j+1, idx)
+        for j, idx in enumerate(np.argsort(similarity[i])[:n_match_examples]):
+            x, y = corners2[idx]
+            window = qimg2.get_patch(x, y, window_size, which='rgb')
+            _plot_patch(ax[j+1, i*2], window, similarity[i][idx])
+            _plot_hist(ax[j+1, i*2+1], hist2[idx])
+    
 
         # show the worst
-        for j, idx in enumerate(np.argsort(similarity[i])[-n_ex:]):
-            _plot_match(j+n_ex+1, idx)
+        for j, idx in enumerate(np.argsort(similarity[i])[-n_worst_examples:]):
+            x, y = corners2[idx]
+            window = qimg2.get_patch(x, y, window_size, which='rgb')
+            _plot_patch(ax[j+1+n_match_examples, i*2], window, similarity[i][idx])
+            _plot_hist(ax[j+1+n_match_examples, i*2+1], hist2[idx])
+
 
     # Annotate plots window with separation lines under first row and between best/worst rows.
     # get the y-coordinates between the first and second row in figure coordinates.
     _, y1 = ax[1, 0].transAxes.transform([0, 1.15])
-    _, y2 = ax[n_ex, 0].transAxes.transform([0, -.20])
+    _, y2 = ax[n_match_examples, 0].transAxes.transform([0, -.20])
     y1 = fig.transFigure.inverted().transform([0, y1])[1]
     y2 = fig.transFigure.inverted().transform([0, y2])[1]
     # x limits are 5% and 95% of the figure width
     x1 = 0.05
     x2 = 0.90
     # annotate
+    
     ax[1, 0].annotate('', xy=(x1, y1), xytext=(
         x2, y1), xycoords='figure fraction', arrowprops=dict(arrowstyle='-', color='k'))
-    ax[n_ex, 0].annotate('', xy=(x1, y2), xytext=(
+    ax[n_match_examples, 0].annotate('', xy=(x1, y2), xytext=(
         x2, y2), xycoords='figure fraction', arrowprops=dict(arrowstyle='-', color='k'))
 
     # Add titles to the three row sections (off to the left)
     ax[0, 0].text(-0.1, 0.5, 'image1 corners', fontsize=12, color='r',
                   ha='right', va='center', transform=ax[0, 0].transAxes)
-    ax[1, 0].text(-0.1, 0.5, 'best %i matches\nof image2' % (n_ex, ), fontsize=12,
+    ax[1, 0].text(-0.1, 0.5, 'best %i matches\nof image2' % (n_match_examples, ), fontsize=12,
                   color='r', ha='right', va='center', transform=ax[1, 0].transAxes)
-    ax[n_ex+1, 0].text(-0.1, 0.5, 'worst %i matches\nof image2' % (n_ex, ), fontsize=12,
-                       color='r', ha='right', va='center', transform=ax[n_ex+1, 0].transAxes)
+    ax[n_match_examples+1, 0].text(-0.1, 0.5, 'worst %i matches\nof image2' % (n_match_examples, ), fontsize=12,
+                                    color='r', ha='right', va='center', transform=ax[n_match_examples+1, 0].transAxes)
 
     # remove most space between subplots
     plt.subplots_adjust(wspace=.1, hspace=.4)
-
+    plt.suptitle('Test Corner Matching', fontsize=16)
+    
     # show and return
     plt.show()
 
 
 if __name__ == "__main__":
     plt.ion()  # do all windows on startup
-    i1, i2 = _test_corner_detector()
-    #_test_similarity_metric(i1, i2)
+    i1 = _test_image(plot=False)
+    ic1, ic2, transf = _test_corner_detector(i1, plot=False)
+    _test_similarity_metric(ic1, ic2, transf, plot=True)
     plt.pause(0)
+    print("All tests passed.")
