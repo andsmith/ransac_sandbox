@@ -14,9 +14,6 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
     :param data2: a tuple (QuantizedColorImage, corners) for the second image (and detected corners
 
     """
-    n_color_bins = 5
-
-    # Number of examples to show (set to 1 to see the best and worst, etc)
     qimg1, corners1 = data1
     qimg2, corners2 = data2
     img1, img2 = qimg1.rgb_img, qimg2.rgb_img
@@ -49,18 +46,23 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
         """
         Show a patch with a score (if given)
         """
+        print(patch.shape)  BROKEN 
         ax.imshow((patch))
         ax.axis('off')
         if score is not None:
             ax.text(0, window_size, '%.2f' % score, color='k', fontsize=10, va='top')
 
     # Plot a few corners from image1 and their best and worst matches in image2
+
+    # Number of examples to show (set to 1 to see the best and worst, etc)
     n_corner_examples = 8
     n_match_examples = 4
     n_worst_examples = 2
+
     n_cols = np.min([n_corner_examples, len(corners1)]) * 2  # for image and histogram
     n_rows = 1 + n_worst_examples + n_match_examples  # for best and worst matches
     fig, ax = plt.subplots(n_rows, n_cols)
+
     for i in range(n_corner_examples):
 
         # show the corner at the top
@@ -119,15 +121,15 @@ if __name__ == "__main__":
     plt.ion()  # do all windows on startup
 
     noise_frac = 0.1
-    params = dict(blockSize=2,
+    params = dict(blockSize=4,
                   ksize=3,
-                  k=0.04)
+                  k=0.06)
 
     q_img1 = TestImage((400, 400))
     q_img2, transf = q_img1.transform(noise_frac=0.1)
 
-    corners1 = q_img1.detect_corners()
-    corners2 = q_img2.detect_corners()
+    corners1 = q_img1.find_corners()
+    corners2 = q_img2.find_corners()
     _test_similarity_metric((q_img1, corners1),
                             (q_img2, corners2),
                             transf=transf, plot=True)

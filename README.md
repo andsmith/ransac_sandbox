@@ -8,7 +8,7 @@ Instead of using this estimator on $D$, known to contain outliers, if we can fin
 
 The idea behind RANSAC is the smaller this subset is, the easier it will be to guess randomly, so all we have to do is repeat this until the condition is met:
 ```
-define RANSAC(D, Estimator, n, min_inliers, threshold)
+define RANSAC(D, Estimator, n, threshold, min_inliers)
     : D - set of data containing outliers
     : Estimator - func. to get model parameters from a subset of D
     : n - minimum number of elements needed for Estimator
@@ -35,7 +35,7 @@ define RANSAC(D, n, Estimator, threshold, max_iter)
     return Estimator(best_inlier_set)
 ```
 
-## Codebase outline:
+## Code outline:
 
 ```
 ransac_sandbox/
@@ -96,7 +96,7 @@ The following can be set by changing the value of the `animate_pause_sec` parame
 ## Image transformation estimation demo
 
 ###### Running the demo
-Run: `> python demo_match_images.py` to start the RANSAC line fitter demo.  The demo will:
+Run: `> python demo_match_images.py` to start the RANSAC image alignment demo.  The demo will:
 
 * create a synthetic image,
 * apply an affine transformation and add noise to create a second, then
@@ -104,18 +104,12 @@ Run: `> python demo_match_images.py` to start the RANSAC line fitter demo.  The 
 
 ###### Details
 
-1.  The [Harris Corner Detector](https://en.wikipedia.org/wiki/Harris_corner_detector) is used to locate a set $C^1$ of "feature points" in image 1 and a set $C^2$ in image 2.
-2.  Rotation-invariant descriptors (local color histograms) are extracted around the locations of corners in both images, call these $D^1$ and $D^2$)
-3.  Determine which corners of image 1 might match which corners of image 2 by comparing their descriptors.  The set of all pairs above some threshold is the dataset D, containing valid correspondences (the inliers) and spurious ones (the outliers):
-
-$
-    D = \{(i,j): S(D^1_i, D^2_j) <= T \},
-$
-
-Where $D^1_i$ is the descriptor of corner $i$ of image 1, $S()$ is the similarity function mapping two descriptors to $[0,1]$, and $T$ is a threshold.
+1.  The [Harris Corner Detector](https://en.wikipedia.org/wiki/Harris_corner_detector) is used to locate a set of "feature points" in image 1 and in image 2.
+2.  Rotation-invariant descriptors (local color histograms) are extracted around the locations of corners in both images.
+3.  Determine which corners of image 1 might match which corners of image 2 by comparing their descriptors.  The set of all pairs above some threshold is the set D, containing valid correspondences (the inliers) and spurious ones (the outliers).
 
 4. Recover the transformation parameters used to create image 2 from image 1 using the RANSAC algorithm.  Repeatedly:
-    * draw 3 correspondences randomly from D,
+    * draw 3 correspondences randomly from D, pairs of corners that have high similarity
     * calculate the transformation mapping the 3 points in image 1 to their corresponding locations in image 2.  
     * Determine which correspondences in $D$ this preserves, this is the inlier set.
     * If the inlier set is large enough, return the transform estimated from it, else repeat.
