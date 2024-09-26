@@ -75,19 +75,20 @@ class CornerDetectionTrial(object):
         # Create the first image and detect corners
         image1 = TestImage(size=self.img_size)
         corners1 = np.array(image1.find_corners(margin=self.margin, harris_kwargs=self.params))
-        score1 = self._score_1(corners1)
+        score1 = CornerDetectionTrial.score_1(corners1)
         if self.kind == 'single':
             return score1, len(corners1), None
-        
+
         # Create the second image, detect corners, and transform the corners from the first image to the second.
         image2, transf = image1.transform(self.noise_frac)
         corners2 = np.array(image2.find_corners(margin=self.margin, harris_kwargs=self.params))
-        true_corners2= image2.transform_coords(transf, corners1)
-        score = score1 * self._score_2(corners1, corners2, true_corners2)
+        true_corners2 = image2.transform_coords(transf, corners1)
+        score = score1 * CornerDetectionTrial.score_2(corners1, corners2, true_corners2)
 
         return score, len(corners1), len(corners2)
 
-    def _score_1(self, corners1):
+    @staticmethod
+    def score_1(corners1):
         """
         Calculate a score for the corner detector on image 1:
             Assume the corners are sensible (this can be visually verified), all we care is that a "reasonable" number of corners are detected.
@@ -104,7 +105,7 @@ class CornerDetectionTrial(object):
                       'high_corners_a': 70,
                       'high_corners_b': 150,
                       'max_corners': 250}
-        
+
         n_corners = len(corners1)
         if n_corners < err_params['min_corners']:
             return 0.
@@ -118,12 +119,13 @@ class CornerDetectionTrial(object):
             return 0.5 - (n_corners - err_params['high_corners_b']) / (err_params['max_corners'] - err_params['high_corners_b'])
         else:
             return 0.
-    # 
-    def _score_2(self, corners1, corners2, true_corners2):  
+
+    @staticmethod
+    def score_2(corners1, corners2, true_corners2):
         """
         Calculate a score for image 2, calculated from comparing the detected corners to the "true" corners:
             * The "true" corners are the corners in image 1 transformed to the coordinates of image 2.
-            * The score is the accuracy at the break-even point of the precision-recall curve (using distance as the metric).
+            * The score is the accuracy (number of).
 
         :param corners1: corners detected in image 1
         :param corners2: corners detected in image 2
@@ -140,11 +142,11 @@ class CornerDetectionTrial(object):
         dists = np.linalg.norm(true_corners2[:, None] - corners2[None], axis=2)
         min_dists = np.min(dists, axis=0)
 
-        
         # Sort the distances and calculate the precision and recall at each point
         idxs = np.argsort(min_dists)
         n_true = len(corners1)
         n_detected = len(corners2)
+
         precision = np.zeros(n_detected)
         recall = np.zeros(n_detected)
         for i in range(n_detected):
@@ -153,9 +155,13 @@ class CornerDetectionTrial(object):
             recall[i] = n_correct / n_true
         # Find the break-even point of the precision-recall curve
         i = np.argmax(np.abs(precision - recall))
-        
-        # Finally, return the accuracy at the break-even point
-        return (precision[i] + recall[i]) / 2.
+
+        # What is the cutoff distance at this point?
+        cutoff = min_dists[idxs[i]]
+
+        # what fraction of detected corners in image 2 are "correct" (near a corner from image 1) using this cutoff?
+        score = np.sum(min_dists <= cutoff) / n_detected
+        return score
 
     def eval(self):
         """
@@ -171,18 +177,17 @@ class CornerDetectionTrial(object):
         self.mean_corners_1 = np.mean(self._n_corners_1)
         self.mean_corners_2 = np.mean(self._n_corners_2) if self.kind == 'double' else None
         logging.info("\ttrial %s complete (%i repetitions):  " % (self.params, self.n_reps))
-        logging.info("\t\tmean score:  %.5f" % ( self.score,))
-        logging.info("\t\tmean corners in 1:  %i" % ( self.mean_corners_1, ))
+        logging.info("\t\tmean score:  %.5f" % (self.score,))
+        logging.info("\t\tmean corners in 1:  %i" % (self.mean_corners_1, ))
 
         if self.mean_corners_2 is not None:
-            logging.info("\t\tmean corners in 2:  %i\n" % ( self.mean_corners_2, ))
+            logging.info("\t\tmean corners in 2:  %i\n" % (self.mean_corners_2, ))
         return self
-        
+
 
 def _eval_trial(trial):
     # Map this function to a list of CornerDetectionTrial objects for parallel processing.
     return trial.eval()
-
 
 
 def tune(img_size, blockSize_vals, kSize_vals, k_vals, noise_frac, n_trials_per_param=50, n_cores=0, kind='double', plot=False):
@@ -198,6 +203,7 @@ def tune(img_size, blockSize_vals, kSize_vals, k_vals, noise_frac, n_trials_per_
     """
     # Generate parameter combination list
     param_combos = list(product(blockSize_vals, kSize_vals, k_vals))
+
     def _get_kw_params(params):
         return dict(blockSize=params[0], ksize=params[1], k=params[2])
     param_combos = [_get_kw_params(params) for params in param_combos]
@@ -235,10 +241,12 @@ def tune(img_size, blockSize_vals, kSize_vals, k_vals, noise_frac, n_trials_per_
 
         for i in range(n_plots):
 
-            axes[i].set_title('blockSize = %d' % blockSize_vals[i])
             scores_blockSize = scores[i::len(blockSize_vals)]
             scores_blockSize = scores_blockSize.reshape(len(kSize_vals), len(k_vals))
             cax = axes[i].matshow(scores_blockSize, cmap='viridis')
+
+            axes[i].set_title('blockSize = %d, max_score: %.3f' %( blockSize_vals[i], np.max(scores_blockSize)))
+
             fig.colorbar(cax, ax=axes[i])
 
             # use at most 4 k_val ticks
@@ -268,30 +276,80 @@ def tune(img_size, blockSize_vals, kSize_vals, k_vals, noise_frac, n_trials_per_
     return best_params, best_score
 
 
-def optimize(noise_frac,kind, plot=True):
+def test_score_function(n_ex=4, img_size=(600, 600), corner_params=None, noise_frac=0.1):
+    """
+    Plot n_ex examples of image pairs, detected cornerrs, transformed (from 1 to 2) corners, and detector scores.
+    
+    The image pair is created by transforming image 1 by a random rotation, scaling, translation, and optionally by adding noise.
+    Corners are detected in both images.
+    The corners in image 1 are transformed to image 2/s coordinate frame by a the true transformation.    
+    Detected corners in image 2 are matched to transformed corners from image 1 in a greedy fashion.
+    The score is the fraction of detected corners in image 2 that are within of a transformed corner from image 1.
 
-    img_size = 600, 600
 
-    if True:
+
+    Show a grid with n_ex columns and 2 rows
+    """
+    corner_params = corner_params if corner_params is not None else dict(blockSize=2, ksize=3, k=0.4)
+    margin = 10
+    fig, ax = plt.subplots(2, n_ex)
+    for i in range(n_ex):
+        img1 = TestImage(size=img_size)
+        img2, transf = img1.transform(noise_frac)
+        corners1 = np.array(img1.find_corners(margin=margin, harris_kwargs=corner_params))
+        corners2 = np.array(img2.find_corners(margin=margin, harris_kwargs=corner_params))
+        print(corners1.shape, corners2.shape)
+        true_corners2 = img2.transform_coords(transf, corners1)
+        score1 = CornerDetectionTrial.score_1(corners1)
+        score2 = CornerDetectionTrial.score_2(corners1, corners2, true_corners2)
+        title1 = 'score1: %.3f\nn_corners:  %i' % (score1, corners1.shape[0])
+        title2 = 'score2: %.3f\nn_corners:  %i' % (score2, corners2.shape[0])
+        ax[0, i].imshow(img1.rgb_img)
+        ax[0, i].scatter(corners1[:, 0], corners1[:, 1], c='r', s=5)
+        ax[0, i].set_title(title1)
+        ax[1, i].imshow(img2.rgb_img)
+        ax[1, i].scatter(corners2[:, 0], corners2[:, 1], c='r', s=5)
+        ax[1, i].scatter(true_corners2[:, 0], true_corners2[:, 1], c='b', s=5)
+        ax[1, i].set_title(title2)
+        ax[0, i].axis('off')
+        ax[1, i].axis('off')
+    plt.suptitle('Example scores for corner detection parameter tuner.')
+
+    plt.show()
+
+
+def optimize(noise_frac, kind, plot=True):
+
+    img_size = 500, 500
+
+    if False:
         # full range of parameters to test:
         blockSize_vals = [2, 4, 8, 14, 20]
         kSize_vals = [1, 3, 5, 7, 9]
-        k_vals = np.linspace(0.04, 0.08, 5)
+        k_vals = np.linspace(0.1, 0.25, 16)
+        n_trials = 10
+
     else:
         # smaller range of parameters to test for debugging
-        blockSize_vals = [1, 2, 3, 4, 5]
+        blockSize_vals = [1, 2]
         kSize_vals = [3, 5]
-        k_vals = [.04, .06]
+        k_vals = np.linspace(0.4, 0.6, 3)
+        n_trials= 2
 
     best_params, score = tune(img_size, blockSize_vals, kSize_vals, k_vals,
-                              noise_frac, n_trials_per_param=50, n_cores=0, kind=kind, plot=plot)
+                              noise_frac, n_trials_per_param=n_trials, n_cores=15, kind=kind, plot=plot)
     logging.info('\n\nBest parameters (score=%.5f):\n%s\n\n' % (score,  best_params))
     return best_params, score
 
 
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    noise_frac = 0.05
-    optimize(noise_frac=noise_frac,kind='double', plot=True)
-    #optimize(noise_frac=noise_frac,kind='double')
+    noise_frac = 0.00
+    
+    params = dict(blockSize=4,
+                  ksize=3,
+                  k=0.06)
+    
+    test_score_function(n_ex=4, noise_frac=noise_frac, corner_params=params)
+
+    optimize(noise_frac=noise_frac, kind='single', plot=True)
