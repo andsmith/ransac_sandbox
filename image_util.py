@@ -48,6 +48,24 @@ class TestImage(object):
         r._init()
         return r, transf
 
+    def transform_coords(self, transf, img1_px):
+        """
+        Transform the coordinates of points in img1_px using the transformation matrix transf.
+        Coordinates transformed out of bounds (WRT self.size) will be removed
+
+        :param img1_px: an Nx2 array of points in image 1
+        :param transf: a 3x3 transformation matrix
+        :returns: an Mx2 array of transformed points
+        """
+        img1_px = np.array(img1_px).reshape(-1, 2)
+        img1_px = np.hstack((img1_px, np.ones((img1_px.shape[0], 1)))).T
+        img2_px = np.dot(transf['M'], img1_px).T
+        #img2_px /= img2_px[:, 2].reshape(-1, 1)
+        #img2_px = img2_px[:, :2]
+        img2_px = img2_px[(img2_px[:, 0] >= 0) & (img2_px[:, 0] < self.size[0]) &
+                          (img2_px[:, 1] >= 0) & (img2_px[:, 1] < self.size[1])]
+        return img2_px
+
     @staticmethod
     def compare_descriptors(hist1, hist2):
         # Symmetric Kullback-Leibler divergence:
@@ -55,15 +73,14 @@ class TestImage(object):
 
         # Bhattacharyya distance:
         # return -np.log(np.sum(np.sqrt(hist1 * hist2)))
-    
+
         # Chi-squared distance:
         return 0.5 * np.sum((hist1 - hist2)**2 / (hist1 + hist2))
 
         # dot product of max-normalized histograms
-        #hist1 /= np.max(hist1)
-        #hist2 /= np.max(hist2)
+        # hist1 /= np.max(hist1)
+        # hist2 /= np.max(hist2)
         return -np.dot(hist1, hist2)
-    
 
     def get_patch(self, x, y, patch_size, which='index'):
         if which not in ['index', 'rgb']:
@@ -259,7 +276,6 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
             window = qimg2.get_patch(x, y, window_size, which='rgb')
             _plot_patch(ax[j+1, i*2], window, similarity[i][idx])
             _plot_hist(ax[j+1, i*2+1], hist2[idx])
-    
 
         # show the worst
         for j, idx in enumerate(np.argsort(similarity[i])[-n_worst_examples:]):
@@ -267,7 +283,6 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
             window = qimg2.get_patch(x, y, window_size, which='rgb')
             _plot_patch(ax[j+1+n_match_examples, i*2], window, similarity[i][idx])
             _plot_hist(ax[j+1+n_match_examples, i*2+1], hist2[idx])
-
 
     # Annotate plots window with separation lines under first row and between best/worst rows.
     # get the y-coordinates between the first and second row in figure coordinates.
@@ -279,7 +294,7 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
     x1 = 0.05
     x2 = 0.90
     # annotate
-    
+
     ax[1, 0].annotate('', xy=(x1, y1), xytext=(
         x2, y1), xycoords='figure fraction', arrowprops=dict(arrowstyle='-', color='k'))
     ax[n_match_examples, 0].annotate('', xy=(x1, y2), xytext=(
@@ -291,20 +306,18 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
     ax[1, 0].text(-0.1, 0.5, 'best %i matches\nof image2' % (n_match_examples, ), fontsize=12,
                   color='r', ha='right', va='center', transform=ax[1, 0].transAxes)
     ax[n_match_examples+1, 0].text(-0.1, 0.5, 'worst %i matches\nof image2' % (n_match_examples, ), fontsize=12,
-                                    color='r', ha='right', va='center', transform=ax[n_match_examples+1, 0].transAxes)
+                                   color='r', ha='right', va='center', transform=ax[n_match_examples+1, 0].transAxes)
 
     # remove most space between subplots
     plt.subplots_adjust(wspace=.1, hspace=.4)
     plt.suptitle('Test Corner Matching', fontsize=16)
-    
+
     # show and return
     plt.show()
 
 
 if __name__ == "__main__":
-    plt.ion()  # do all windows on startup
+    plt.ioff()  # do all windows on startup
     i1 = _test_image(plot=False)
-    ic1, ic2, transf = _test_corner_detector(i1, plot=False)
-    _test_similarity_metric(ic1, ic2, transf, plot=True)
-    plt.pause(0)
+    ic1, ic2, transf = _test_corner_detector(i1, plot=True)
     print("All tests passed.")

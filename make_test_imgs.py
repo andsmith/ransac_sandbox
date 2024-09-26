@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import pprint
+import matplotlib.pyplot as plt
 
 
 def draw_img(size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
@@ -56,9 +57,8 @@ def draw_img(size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
 def _test_draw_img():
     img, palette = draw_img((256, 256))
     img_rgb = palette[img].astype(np.uint8)
-    cv2.imshow('image', img_rgb)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    plt.imshow(img_rgb)
+    plt.show()
 
 
 def transform_img(img, noise_frac=0., max_color_ind=None):
@@ -109,14 +109,15 @@ def transform_img(img, noise_frac=0., max_color_ind=None):
 def _test_transform_img():
     img, palette = draw_img((256, 256))
     img2, transform = transform_img(img, noise_frac=0.1, max_color_ind=palette.shape[0])
-    img_both = np.zeros((img.shape[0], img.shape[1]*2), dtype=np.uint8)
-    img_both[:, :img.shape[1]] = img
-    img_both[:, img.shape[1]:] = img2
-    img_both_rgb = palette[img_both].astype(np.uint8)
+    fig, ax = plt.subplots(1, 2)
+    ax[0].imshow(palette[img])
+    ax[1].imshow(palette[img2])
+    ax[0].set_title('Original')
+    ax[1].set_title('Transformed')
+    ax[0].axis('off')
+    ax[1].axis('off')
+    plt.show()
 
-    cv2.imshow('image', img_both_rgb)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
