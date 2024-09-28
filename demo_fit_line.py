@@ -30,7 +30,7 @@ def demo(n_line_pts, n_outliers, **ransac_args):
         _, ax = plt.subplots()
         # plot the final model & best model
         data.plot(inlier_mask=result['inliers'], ax=ax)
-        result['best_model'].plot(ax=ax, plt_kwargs={'label': 'best model (iter %i)' % (result['best_iter'],),
+        result['best_model'].plot(ax=ax, plt_kwargs={'label': 'best model (iter %i)' % (1+result['best_iter'],),
                                                      'linewidth': 1},
                                   plt_args=['b-'], show_features_used=True)
         result['final_model'].plot(ax=ax, plt_kwargs={'label': 'final model'},
@@ -48,5 +48,5 @@ if __name__ == '__main__':
          n_outliers=100,
          max_error=0.03,
          max_iter=20,
-         animate_pause_sec=0.3  # 0 to pause between iterations, None to disable plotting
+         animate_pause_sec=0  # 0 to pause between iterations, None to disable plotting
          )

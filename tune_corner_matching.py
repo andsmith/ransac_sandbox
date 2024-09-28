@@ -46,7 +46,7 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
         """
         Show a patch with a score (if given)
         """
-        print(patch.shape)  
+        print(patch.shape)   
         ax.imshow((patch))
         ax.axis('off')
         if score is not None:
@@ -118,30 +118,25 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
 
 
 if __name__ == "__main__":
-    plt.ioff() 
+    plt.ion()  # do all windows on startup
 
-    noise_frac = 0.1
+    noise_frac = 0.0
+    
     params = dict(blockSize=4,
                   ksize=3,
                   k=0.06)
 
     q_img1 = TestImage((400, 400))
     q_img2, transf = q_img1.transform(noise_frac=0.1)
-
-    corners1 = q_img1.find_corners()
-    corners2 = q_img2.find_corners()
-
-    # plot both sets of detected corners
-    fig, ax = plt.subplots(1, 2)
-    q_img1.plot(ax[0], corners=corners1, title="Image 1 corners")
-    q_img2.plot(ax[1], corners=corners2, title="Image 2 corners")
-    plt.show()
+    import ipdb; ipdb.set_trace()
 
 
-
+    corners1 = q_img1.find_corners(harris_kwargs=params)
+    corners2 = q_img2.find_corners(harris_kwargs=params)
     _test_similarity_metric((q_img1, corners1),
                             (q_img2, corners2),
                             transf=transf, plot=True)
     
     plt.pause(0)
     print("All tests passed.")
+

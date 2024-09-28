@@ -18,26 +18,19 @@ class TestImage(object):
     Extract local feature descriptors (represented internally as histograms, somewhat invariant to this restricted set of images)
     Compare two descriptors to return a score.
     """
-    _SCALE = 4  # scale factor for the image (to reduce aliasing effects)
 
     def __init__(self, size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
         """
-        (Store internally as a larger image to reduce aliasing effects when transforming)
-
         :param size: the size of the image (width, height)
         :param n_rects: the number of rectangles to draw on top of the circles
         :param n_circle_colors: the number of colors to use for the circles
         :param n_rect_colors: the number of colors to use for the rectangles
         """
         self.size = size
-        self._int_size = (size[0] * TestImage._SCALE, size[1] * TestImage._SCALE)
-        self._int_img, self.palette = draw_img(self._int_size , n_rects, n_circle_colors, n_rect_colors)
-
+        self.img, self.palette = draw_img(size, n_rects, n_circle_colors, n_rect_colors)
         self._init()
 
     def _init(self):
-        # scale down to create externally visible image
-        self.img = cv2.resize(self._int_img, self.size, interpolation=cv2.INTER_NEAREST)
         self.n_colors = self.palette.shape[0]
         self.rgb_img = self.palette[self.img].astype(self.palette.dtype)
         self.gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
@@ -48,9 +41,9 @@ class TestImage(object):
         :param image: a 2d array of pixel values, each in [0, palette.shape[0])
         :param noise_frac: the fraction of pixels to randomly change
         """
-        int_img2, transf = transform_img(self._int_img, noise_frac, max_color_ind=self.n_colors)
+        img2, transf = transform_img(self.img, noise_frac, max_color_ind=self.n_colors)
         r = TestImage(size=self.size)
-        r._int_img = int_img2
+        r.img = img2
         r.palette = self.palette
         r._init()
         return r, transf
@@ -61,14 +54,20 @@ class TestImage(object):
         Coordinates transformed out of bounds (WRT self.size) will be removed
 
         :param img1_px: an Nx2 array of points in image 1
-        :param transf: a 3x3 transformation matrix
+        :param transf: the transformation dict w keys:
+            'angle': the rotation angle,
+            'translation': the translation vector,
+            'scale': the scale factor,
+            'M': transformation matrix (from cv2.getAffineTransform)
+
         :returns: an Mx2 array of transformed points
         """
         img1_px = np.array(img1_px).reshape(-1, 2)
-        img1_px = np.hstack((img1_px, np.ones((img1_px.shape[0], 1)))).T
-        img2_px = np.dot(transf['M'], img1_px).T
-        #img2_px /= img2_px[:, 2].reshape(-1, 1)
-        #img2_px = img2_px[:, :2]
+        img1_px = np.hstack([img1_px, np.ones((len(img1_px), 1))])
+        img2_px = np.dot(transf['M'], img1_px.T).T
+        #img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
+
+        
         img2_px = img2_px[(img2_px[:, 0] >= 0) & (img2_px[:, 0] < self.size[0]) &
                           (img2_px[:, 1] >= 0) & (img2_px[:, 1] < self.size[1])]
         return img2_px
@@ -111,7 +110,7 @@ class TestImage(object):
         hist /= np.sum(hist)
         return hist
 
-    def find_corners(self, margin=0, harris_kwargs=None):
+    def find_corners(self,harris_kwargs=None, margin=0):
         """
         Find corners in an image using the Harris corner detector.
         :param margin: don't return corners within this many pixels of the edge
@@ -160,21 +159,17 @@ class TestImage(object):
                           (corners[:, 1] > margin) & (corners[:, 1] < self.img.shape[0]-margin)]
         return corners
 
-    def plot(self, ax=None, which='rgb', corners= None, title=None):
+    def plot(self, ax=None):
         """
         Plot the image (RGB & grayscale) side by side.
         :param ax: the axis to plot in (if None, create a new figure)
         """
-        if which not in ['rgb', 'gray']:
-            raise ValueError("'which' must be one of 'rgb' or 'gray'")
-        img = self.rgb_img if which == 'rgb' else self.gray
         if ax is None:
-            fig, ax = plt.subplots()
-        ax.imshow(img)
-        if title is not None:
-            ax.set_title(title)
-        if corners is not None:
-            ax.scatter(corners[:, 0], corners[:, 1], color='r', s=30)
+            fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(self.rgb_img)
+        ax[0].set_title('RGB')
+        ax[1].imshow(self.gray, cmap='gray')
+        ax[1].set_title('Grayscale')
         return ax
 
 
@@ -185,36 +180,6 @@ def _test_image(plot=False):
         plt.suptitle('Test Image', fontsize=16)
         plt.show()
     return q_img1
-
-
-def _test_corner_detector(q_img1, plot=False):
-    """
-    Transform TestImage to create pair, find corners, and show the results in a plot.
-    return images and detected corners
-    """
-    args = dict(blockSize=2,
-                ksize=3,
-                k=0.05)
-
-    q_img2, transf = q_img1.transform(0.1)
-    img1, img2 = q_img1.rgb_img, q_img2.rgb_img
-
-    # find corners in both images & plot them
-    corners1 = q_img1.find_corners(margin=10, harris_kwargs=args)
-    corners2 = q_img2.find_corners(margin=10, harris_kwargs=args)
-
-    if plot:
-        _, ax = plt.subplots(1, 2)
-        ax[0].imshow(img1)
-        ax[0].scatter(corners1[:, 0], corners1[:, 1], color='r', s=50)
-        ax[0].set_title('Image 1')
-        ax[1].imshow(img2)
-        ax[1].scatter(corners2[:, 0], corners2[:, 1], color='r', s=50)
-        ax[1].set_title('Image 2 = f(Image 1)')
-        plt.suptitle('Test Corner Detection', fontsize=16)
-        plt.show()
-
-    return (q_img1, corners1), (q_img2, corners2), transf
 
 
 def _test_similarity_metric(data1, data2, transf, plot=False):
@@ -329,6 +294,5 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
 
 if __name__ == "__main__":
     plt.ioff()  # do all windows on startup
-    i1 = _test_image(plot=False)
-    ic1, ic2, transf = _test_corner_detector(i1, plot=True)
+    i1 = _test_image(plot=True)
     print("All tests passed.")
