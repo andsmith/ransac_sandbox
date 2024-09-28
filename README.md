@@ -123,30 +123,49 @@ The first image is created in two steps:
 The second image is created from the first through this process:
   * A random small rotation, translation, and scaling are used to transform the image (preserving width & height)
   * Some fraction of the pixels are randomly switched to a different color.
-
 ![synth_img](/assets/synth_img.png)
 ### Tuning the corner detector:
 
 The expected corners to detect are the corners of the rectangles and intersections of boundaries between shapes.  The color palette is limited to make the corner matching more challenging (i.e. to make them appear more similar).
 
-A set of parameters for the Harris Corner Detector (kSize, blockSize, and k) need to be found that work in the original and transformed image space.  To explore the effects of changing then use `tune_corner_detector.py`.  This script samples the parameter space and scores each set of parameters on multiple test images, displaying mean value as the color of a pixel on a grid:
+A set of parameters for the Harris Corner Detector (kSize, blockSize, and k) need to be found that work in the original and transformed image space.
 
-![synth_img](/assets/tune_corner_detect.png)
+To automatically determine the best settings, we can define a score for the detector and iterate over many random trials.
 
-This can be run with either of two scoring function types (see code for details):
+#### Scoring the detector on the first image:
 
- * 'single' mode - Only score the detector on the first image (the number of corners is in the optimal range).
- * 'double' mode - Score the detector on both images (the number in the first is good *and* ones detected in the second are in the transformed locations in the first)
+For a single image, the only criteria are detecting enough corners but not too many false positives.  To ensure the number is in the correct range for this category of images, we use this function to score the detector on the first image:
+
+![detector_func](/assets/detection_func_single.png)
+(run `> python test_detection_tuner.py` to generate)
+
+#### Scoring the detector on the second (and both) images
+To score the second image, transform the corners detected from the first image using the same affine transformation that created the second image.  Call these the "true" corners and calculate the accuracy of the detector in the second image (num correct / num detections).  The "combined" score for this set of parameters is the product of the two scores:
+
+![detector_func](/assets/detection_tuner_score.png)
+(The red dots are the detected corners in both image, the blue + symbols are the corners detected in the first image transformed to the second image's coordinates using the same affine matrix that created the second image from the first.)
+
+
+To iterate through many combinations of paramers use `tune_corner_detector.py`.  This script samples the parameter space and scores each set of parameters on multiple test images, displaying mean value as the color of a pixel on a grid:
+
+![detector_tuning](/assets/tune_corner_detect.png)
+As the image shows, as long as the blocksize is >= 4 and the kSize parameter (size of the Sobel kernel) is sufficiently large to average out noise, there is a good range of values that should work. 
+
 
 
 ### Tuning the corner matching algorithm:
 
-A good set of parameters for the corner detector can be used to locate the corners in image 1 and image 2.  To determine which corners in image 2 might correspond to a given corner in image 1, a rotation/noise invariant descriptor is extracted from a small neighborhood around the corners and their descriptors are compared.  
+A good set of parameters for the corner detector can be used to locate the corners in image 1 and image 2.  Then, to determine which corners in image 2 might correspond to a given corner in image 1, a rotation and noise invariant descriptor is extracted from a small neighborhood around the corners and their descriptors are compared.  
 
 The descriptors are simple color histograms, a vector of how many times each distinct color appears in it, with optional smoothing.  Two descriptors can therefore be compared using any histogram similarity metric. (See `TestImage.compare_descriptors()` for a few examples.)
 
-To explore the effects of changing the descriptor parameters and comparison function, run `tune_corner_matching.py`.  This will create a test pair and run the corner matching algorithm with a desired set of parameters, displaying a few corners from image 1, a few of the closest matching corners from image 2, and a few of the worst machest in image 2.  The descriptors are plotted next to each corner:
+To explore the effects of changing the descriptor parameters and comparison function, run `tune_corner_matching.py`.  This will create a test pair and run the corner matching algorithm with a desired set of parameters, displaying a few corners from image 1 and a few of the best and worst matching corners from image 2:
 
+![detector_tuning](/assets/corner_matcher.png)
 
+Next to each image patch is a histogram of the amount of each color in it (a visualization of the corner descriptors).   Note:
+* The left- and right-most corners from image 1 did not match any corners in image 2 with low distance and correspondingly the score is much higher than the best matches in the middle four examples.
+* The third column is matching one corner of a purple rectangle over green in image 1 to all four corners of the same shape in image 2, confirming the rotational invariance of the corner matcher.
 
-
+### Image matching demo:
+Run: `> python demo_match_images.py` to start the demo.q

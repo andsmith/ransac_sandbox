@@ -78,7 +78,7 @@ def transform_img(img, noise_frac=0., max_color_ind=None):
     # Make an affine transformation & apply it to create the second image
     size = (img.shape[1], img.shape[0])
     transform_angle = np.pi/3 + np.random.rand() * np.pi/3
-    transform_scale = 1.1 + np.random.rand() * 0.5
+    transform_scale = 1.1 + np.random.rand() * 0.4
     transform_translation = np.random.randn(2) * 40
     M = cv2.getRotationMatrix2D(
         (size[0]//2, size[1]//2), transform_angle*180/np.pi, transform_scale)

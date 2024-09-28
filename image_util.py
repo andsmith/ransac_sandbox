@@ -48,7 +48,7 @@ class TestImage(object):
         r._init()
         return r, transf
 
-    def transform_coords(self, transf, img1_px):
+    def transform_coords(self, transf, img1_px, margin=0):
         """
         Transform the coordinates of points in img1_px using the transformation matrix transf.
         Coordinates transformed out of bounds (WRT self.size) will be removed
@@ -68,8 +68,8 @@ class TestImage(object):
         #img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
 
         
-        img2_px = img2_px[(img2_px[:, 0] >= 0) & (img2_px[:, 0] < self.size[0]) &
-                          (img2_px[:, 1] >= 0) & (img2_px[:, 1] < self.size[1])]
+        img2_px = img2_px[(img2_px[:, 0] >= margin) & (img2_px[:, 0] < self.size[0]-margin) &
+                          (img2_px[:, 1] >= margin) & (img2_px[:, 1] < self.size[1]-margin)]
         return img2_px
 
     @staticmethod
@@ -92,9 +92,10 @@ class TestImage(object):
         if which not in ['index', 'rgb']:
             raise ValueError("which must be one of 'index' or 'rgb'")
         patch_size = patch_size // 2
-        x, y = int(x), int(y)
+        x_min, xmax = int(max([0, x-patch_size])), int(min([self.img.shape[1], x+patch_size]))
+        y_min, ymax = int(max([0, y-patch_size])), int(min([self.img.shape[0], y+patch_size]))
         src = self.img if which == 'index' else self.rgb_img
-        return src[y-patch_size:y+patch_size, x-patch_size:x+patch_size]
+        return src[y_min:ymax, x_min:xmax]
 
     def get_patch_descriptor(self, x, y, patch_size, smoothing=1):
         """
@@ -140,19 +141,24 @@ class TestImage(object):
         dst = np.uint8(dst)
         ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
 
+        # remove spurious centroid in the center of the image
+        centroids = centroids[1:]
+
         # Define the criteria to stop and refine the corners
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
 
         try:
             corners = cv2.cornerSubPix(self.gray, np.float32(
                 centroids), (5, 5), (-1, -1), criteria)
+            
+            
         except cv2.error:
             # print min/max x/y of centroids
             print("Error in cornerSubPix: ", centroids.min(axis=0), centroids.max(axis=0))
             print("returning centroids without subpixel refinement.")
             print("\tCentroid range: ", centroids.min(axis=0), centroids.max(axis=0))
             print("\tNumber of centroids found: ", len(centroids))
-            return centroids
+            corners=centroids
 
         # Filter out corners near the edge
         corners = corners[(corners[:, 0] > margin) & (corners[:, 0] < self.img.shape[1]-margin) &

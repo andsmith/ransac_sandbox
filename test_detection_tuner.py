@@ -45,6 +45,7 @@ def _plot_corner_detector(noise_frac=0.0):
     Make an image pair, detect corners in both, plot corners in both, translate corners from image 1 to image 2 and plot those over image 2.
     """
     size = 400, 400
+    margin=15
     
     params = dict(blockSize=2,
                   ksize=9,
@@ -52,9 +53,9 @@ def _plot_corner_detector(noise_frac=0.0):
 
     img1 = TestImage(size)
     img2, transf = img1.transform(noise_frac=noise_frac)
-    corners1 = img1.find_corners(harris_kwargs=params)
-    corners2 = img2.find_corners(harris_kwargs=params)
-    true_corners2 = img1.transform_coords(transf, corners1)
+    corners1 = img1.find_corners(harris_kwargs=params,margin=margin)
+    corners2 = img2.find_corners(harris_kwargs=params,margin=margin)
+    true_corners2 = img1.transform_coords(transf, corners1,margin=margin)
 
     fig, ax = plt.subplots(1, 2)
     ax[0].imshow(img1.rgb_img)
@@ -79,17 +80,31 @@ def _plot_corner_detector(noise_frac=0.0):
 
     plt.show()
 
+def _plot_detector_function():
+    """
+    Plot the corner detection score function.
+    """
+    n = np.arange(0, 400)
+    scores = CornerDetectionTrial._SCORE_FN(n)
+    fig, ax = plt.subplots()
+    ax.plot(n, scores)
+    ax.set_xlabel('n_corners')
+    ax.set_ylabel('score')
+    ax.set_title('Corner Detection Score Function\n')
+    plt.show()
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    size = 400, 400
-    noise_frac = 0.00
-    params = dict(blockSize=4,
-                  ksize=5,
-                  k=0.05)
+    size = 500, 500
+    noise_frac = 0.10
 
-    test_corner_detection_trial(noise_frac=noise_frac, n_trials=3, params=params, kind='single',plot=False)
-    test_corner_detection_trial(noise_frac=noise_frac, n_trials=3, params=params, kind='double',plot=False)
+    params = dict(blockSize=8,
+                  ksize=23,
+                  k=0.045)
+
+    test_corner_detection_trial(noise_frac=noise_frac, n_trials=3, params=params, kind='single',plot=True)
+    test_corner_detection_trial(noise_frac=noise_frac, n_trials=3, params=params, kind='double',plot=True)
     #_plot_corner_detector(noise_frac)
+    _plot_detector_function()
 
     logging.info('All tests passed.')
