@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
 
 
 def make_line_data(n_pts, n_outliers, noise_sigma=0.01):
@@ -18,6 +19,32 @@ def make_line_data(n_pts, n_outliers, noise_sigma=0.01):
     error_pts = np.random.rand(n_outliers*2).reshape(-1, 2)
     params = fit_line(line_pts.T)
     return np.vstack((line_pts.T, error_pts)), params
+
+
+def get_random_affine_transf(size):
+    transform_angle = np.pi/3 + np.random.rand() * np.pi/3
+    transform_scale = 1.1 + np.random.rand() * 0.4
+    transform_translation = np.random.randn(2) * 40
+    M = cv2.getRotationMatrix2D(
+        (size[0]//2, size[1]//2), transform_angle*180/np.pi, transform_scale)
+    M[:, 2] += transform_translation
+    return {'M': M,
+            'angle': transform_angle,
+            'scale': transform_scale,
+            'translation': transform_translation}
+
+
+def fit_affine_transform(src_pts, dst_pts):
+    """
+    Fit an affine transform to the given 2d points.
+    """
+    # Add a column of ones to the src_pts
+    src_pts = np.hstack((src_pts, np.ones((src_pts.shape[0], 1))))
+
+    # Solve the least squares problem
+    model = np.linalg.lstsq(src_pts, dst_pts, rcond=None)[0].T
+
+    return model
 
 
 def fit_line(data):
@@ -59,3 +86,32 @@ def plot_line(a, b, c, ax=None, plt_args=(), plt_kwargs={}):
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
     return ax
+
+
+def test_fit_affine():
+    src_pts = np.random.randn(2*100).reshape(100, 2)
+    transf = get_random_affine_transf((500, 500))
+    dst_pts = cv2.transform(src_pts[None, :, :], transf['M'])[0]
+    model = fit_affine_transform(src_pts, dst_pts)
+    assert np.allclose(model, transf['M']), 'Affine transform fit failed.'
+
+
+def test_fit_line():
+    data, params = make_line_data(100, 0)
+    a, b, c = fit_line(data)
+    assert np.allclose([a, b, c], params) or np.allclose([a, b, c], -params), 'Line fit failed.'
+
+
+def test_point_line_distances():
+    a, b, c = 1, 1, -1
+    pts = np.array([[0, 0], [1, 1], [1, 0], [0, 1]])
+    true_dists = [np.sqrt(2)/2, np.sqrt(2)/2, 0, 0]
+    dists = point_line_distances(pts, a, b, c)
+    assert np.allclose(dists, true_dists), 'Point line distances failed: %s != %s' % (dists, true_dists)
+
+
+if __name__ == '__main__':
+    test_fit_affine()
+    test_fit_line()
+    test_point_line_distances()
+    print('All tests passed.')

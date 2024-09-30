@@ -164,8 +164,8 @@ To explore the effects of changing the descriptor parameters and comparison func
 ![detector_tuning](/assets/corner_matcher.png)
 
 Next to each image patch is a histogram of the amount of each color in it (a visualization of the corner descriptors).   Note:
-* The left- and right-most corners from image 1 did not match any corners in image 2 with low distance and correspondingly the score is much higher than the best matches in the middle four examples.
+* The left- and right-most corners from image 1 did not match any corners in image 2 with low distance and correspondingly the score is much higher than the best matches in the middle four examples.  (And looks like it may be a false-positive detection.)
 * The third column is matching one corner of a purple rectangle over green in image 1 to all four corners of the same shape in image 2, confirming the rotational invariance of the corner matcher.
 
 ### Image matching demo:
-Run: `> python demo_match_images.py` to start the demo.q
+Run: `> python demo_match_images.py` to start the demo.

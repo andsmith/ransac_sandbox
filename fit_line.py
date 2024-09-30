@@ -57,6 +57,7 @@ class RansacLine(RansacModel):
         Set model params a, b, c of the line a*x + b*y + c = 0.
         """
         super().__init__(features=features)
+        self._fig, self._ax = None, None
 
     def __str__(self):
         return "Line: %.3f*x + %.3f*y + %.3f = 0" % tuple(self._model_params)
@@ -73,6 +74,13 @@ class RansacLine(RansacModel):
         """
         return fit_line(np.array(features))
 
+    @staticmethod
+    def _animation_setup():
+        """
+        Set up the animation for plotting the model.
+        """
+        RansacModel._FIG, RansacModel._AXES = plt.subplots(1, 2)
+
     def evaluate(self, features):
         """
         Return the perpendicular distance from each point to the line.
@@ -82,16 +90,69 @@ class RansacLine(RansacModel):
         """
         return point_line_distances(np.array(features), *self._model_params)
 
-    def plot(self, ax=None, show_features_used=True, plt_args=(),  plt_kwargs={}):
+    def plot_iteration(self, data, current_model, best_model, is_final=False):
         """
-        Plot the line on the current axis.
+        2 plots, left is current iteration, with all points plotted, minimum sample, inliers/outliers distinguished 
+        & fit line.  Right is the same for the best iteration's model
         """
-        ax = ax if ax is not None else plt.gca()
 
-        if show_features_used:
-            points = np.array(self._features)  # draw a circle around these
-            ax.scatter(points[:, 0], points[:, 1],  s=200,
-                       label="model features", facecolors='none', edgecolors='b',linewidth =3)
+        if RansacModel._AXES is None:
+            RansacLine._animation_setup()
+        axes = RansacModel._AXES
 
-        plot_line(*self._model_params, ax=ax,
-                  plt_args=plt_args, plt_kwargs=plt_kwargs)
+        if is_final:
+            print("n_features_used: ", len(current_model['sample']))
+            title = 'Final RANSAC model after %i iterations\niter %i had %i inliers (%.2f %%)' % \
+                (current_model['iter']+1, best_model['iter']+1,
+                 np.sum(best_model['inliers']),
+                 100*np.mean(best_model['inliers']))
+
+            fig, ax = plt.subplots(1)
+
+            # Final plot has data w/ inliers
+            data.plot(ax, inlier_mask=current_model['inliers'])
+
+            # the sample used to find the inliers
+            ax.scatter(*np.array(best_model['sample']).T, s=50,
+                       label='sample', facecolors='none', edgecolors='b', linewidth=1)
+
+            # the model fitting the sample
+            plot_line(*best_model['model'].get_params(), ax=ax,
+                      plt_args=['b-'], plt_kwargs={'label': 'best model\niter %i' % (best_model['iter']+1)})
+
+            # the model fitting the consensus set (inliers)
+            plot_line(*current_model['model'].get_params(), ax=ax,
+                      plt_args=['g-'], plt_kwargs={'label': 'final model'})
+
+            # a least-squares fit to all points, as a baseline
+            plot_line(*fit_line(data._dataset), ax=ax,
+                      plt_args=['k--'], plt_kwargs={'label': 'LS fit\nall data'})
+
+            ax.legend()
+            ax.set_title(title)
+        else:
+            title = 'iteration %i found %i inliers' % \
+                    (current_model['iter']+1, np.sum(current_model['inliers']))
+
+            title_best = 'best iteration (%i): %i inliers' % (best_model['iter']+1, np.sum(best_model['inliers']))
+
+            # Clear the axes
+            for a in axes:
+                a.clear()
+
+            def _plot(ax, model, line_label, plot_str='b-'):
+                """
+                Plot the points, sample features, model (line), inliers/outliers.
+                """
+                data.plot(ax, inlier_mask=model['inliers'])
+                ax.scatter(*np.array(model['model']._features).T, s=50,
+                           label='model features', facecolors='none', edgecolors='b', linewidth=1)
+                plot_line(*model['model'].get_params(), ax=ax,
+                          plt_args=[plot_str], plt_kwargs={'label': line_label})
+
+            _plot(axes[0], current_model, '')
+            _plot(axes[1], best_model, 'fit line')
+            axes[0].set_title(title)
+            axes[1].set_title(title_best)
+            axes[1].legend()
+            plt.draw()

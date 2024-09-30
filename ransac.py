@@ -2,12 +2,14 @@
 Base classes for RANSAC solver:
     * Feature Extractor (RansacDataFeatures)
     * Model Fitter (RansacModel)
-    * 
+    *
 """
 
 from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
+
+import logging
 
 
 class RansacDataFeatures(ABC):
@@ -47,10 +49,11 @@ class RansacModel(ABC):
     """
     _N_MIN_FEATURES = None  # minimum number of features needed to fit the model (override in subclass)
 
+    _FIG, _AXES = None, None  # class-level variables for plotting different models in the same figure
+
     def __init__(self, features):
         self._features = features  # remember for plotting
         self._model_params = self._fit(features)
-
         self._check_params()
 
     @classmethod
@@ -78,16 +81,43 @@ class RansacModel(ABC):
         """
         pass
 
+    @staticmethod
     @abstractmethod
-    def plot(self, ax=None, show_features_used=True):
+    def _animation_setup():
         """
-        Plot the model on the axis (assume the dataset has already been plotted there).
+        Set RANSAC animation up if needed, e.g. fig, axes, etc.
+        """
 
-        :param ax: the axis to plot on
-        :param show_features_used: if True, plot the features used to fit the model
-        :returns: the axis
-        """
         pass
+
+    @abstractmethod
+    def plot_iteration(self, data, current_model, best_model, is_final=False):
+        """
+        Plot the current status (or final).
+
+        if is_final=False, plot (and show):
+            - the data
+            - the current model, & samples used to fit it, & the inliers/outliers
+            - the best model so far, & the inliers/outliers
+            - titles/axis labels/legends as needed
+
+        elif is_final=True (I.E. self._model_params have been estimated from the consensus set), plot a visualization of:
+
+            - the data
+            - the best iteration's model, as above
+            - the current model (i.e. the final model fit to the consensus set)
+
+        :param data: the RansacDataFeatures object containing the data & extracted features
+
+        :param current_model: dict: {'iter': current iteration number
+                             'sample': sample used to fit the best model  (should be self._features)
+                             'model': RansacModel object, fit from that sample (i.e. self)
+                             'inliers': inliers, boolean array index of data.
+                             }
+        :param best_model: dict: (same from best iteration so far)
+        :param is_final: bool, True if the final model is being plotted ()
+        """
+    pass
 
     def get_params(self):
         return self._model_params
@@ -118,26 +148,28 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         - 0: plot each iteration, waiting for user input to continue
         - >0: plot each iteration, pausing for the given number of seconds
 
-    :returns: best model found after max_iter, dict with keys:
-        - 'best_iter': iteration number of the best model
-        - 'best_sample': the minimal set of features used to fit the model
-        - 'best_model': the model object (subclass of RansacModel)
-        - 'final_model': the model object fit to the final consensus set
-        - 'inliers': boolean array indicating which features are inliers (according to the best model)
-        - 'features': the features used to fit the model
+    :returns: dict with the following structure:
+        {'best': {'iter': best iteration number,
+                  'sample': sample used to fit the best model,
+                  'model': best model,
+                  'inliers': boolean array, the consensus set of inliers},
+        'final': {'model': final model fit to the consensus set,
+                  'iter':  total iterations run },
+        'features': the list of extracted features,
+        'inliers': boolean array of inliers from the final model fit to the consensus set
+        }
     """
     features = data.get_features()
     n_features = len(features)
     n_min = model_type.get_n_min_features()
 
     best_so_far = None
+    ax = None
+    logging.info("Running RANSAC on %i features" % n_features)
 
     if animate_pause_sec is not None:
-        """
-        Plot has two subplots, left is current iteration, right is the best so far.
-        """
+        logging.info("Animating RANSAC with pause of %.2f sec" % animate_pause_sec)
         plt.ion()
-        fig, ax = plt.subplots(1, 2)
 
     for iter in range(max_iter):
 
@@ -150,48 +182,37 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         errors = model.evaluate(features)
         inliers = errors <= max_error
 
-        current_model = {'best_iter': iter, 'best_sample': sample,
-                         'best_model': model, 'inliers': inliers}
+        current_model = {'iter': iter, 'sample': sample,
+                         'model': model, 'inliers': inliers}
+        
+        logging.info("Iteration %i: %i inliers" % (iter, np.sum(inliers)))
 
         if best_so_far is None or np.sum(inliers) > sum(best_so_far['inliers']):
             best_so_far = current_model
             print("New best model found on iteration %i: %i inliers" %
                   (iter, np.sum(inliers)))
 
-        #########################################
-        # ANIMATION STUFF BELOW
-
         if animate_pause_sec is not None:
-            wait_for_keypress =  animate_pause_sec == 0 
-            title ='Iteration %s of %i found %i inliers' % (iter+1, max_iter, np.sum(inliers))
-            if wait_for_keypress:
-                title = "Press any key to continue...\n\n"+title
-
-            # clear both axes
-            for a in ax:
-                a.clear()
-
-            # plot the current iteration
-            data.plot(ax[0], inliers)
-            model.plot(ax[0], show_features_used=True, plt_args=('b-',), plt_kwargs={'label': 'current model'})
-            ax[0].set_title(title)
-
-            # plot the best so far
-            data.plot(ax[1], best_so_far['inliers'])
-            best_so_far['best_model'].plot(ax[1], show_features_used=True, plt_args=('b-',), plt_kwargs={'label': 'best model yet'})
-            ax[1].set_title('Best iteration (%i): %i inliers' % (best_so_far['best_iter']+1,
-                                                                 np.sum(best_so_far['inliers'])))
-
-            # plt.draw()
-            plt.legend()
-            if wait_for_keypress:
+            model.plot_iteration(data, current_model, best_so_far, is_final=False)
+            if animate_pause_sec == 0:
                 plt.waitforbuttonpress()
             else:
                 plt.pause(animate_pause_sec)
-
+    # gather inliers from best iteration (consensus set)
     good_features = np.array(features)[best_so_far['inliers']]
-    final_model = model_type(good_features)
-    result = {'final_model': final_model, 'features': features}
+
+    # fit the final model to the consensus set
+    final_model = {'model': model_type(good_features),
+                   'iter': max_iter,
+                   'sample': good_features,
+                   'inliers': best_so_far['inliers']}
+
+    result = {'best': best_so_far, 'final': final_model, 'features': features, 'consensus': best_so_far['inliers']}
+
+    if animate_pause_sec is not None:
+        model.plot_iteration(data, final_model, best_so_far, is_final=True)
+        plt.pause(0)
+
     result.update(best_so_far)
 
     return result
