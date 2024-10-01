@@ -31,7 +31,7 @@ class RansacDataFeatures(ABC):
         pass
 
     def get_features(self):
-        return self._features.copy()
+        return self._features
 
 
 class RansacModel(ABC):
@@ -42,18 +42,18 @@ class RansacModel(ABC):
 
     _FIG, _AXES = None, None  # class-level variables for plotting different models in the same figure
 
-    def __init__(self, features, inlier_threshold, training_inds, iter=None):
+    def __init__(self, data, inlier_threshold, training_inds, iter=None):
         """
         Initialize the model with the given features.
-        :param features: list of N features to fit (as returned by RansacDataset.get_features)
+        :param data: RansacDataFeatures object containing the data & extracted features.
         :param inlier_threshold: threshold for inliers (will depend on implementation of RansacModel.evaluate)
         :param training_inds: list of indices of the features used to fit this RansacModel.
         :param iter: iteration number, for bookkeeping
         """
         self.iter = iter
         self.thresh = inlier_threshold
-        self.features = features
-        self.sample_mask = np.zeros(len(features), dtype=bool)  # boolean array of the features used to fit the model
+        self.data = data
+        self.sample_mask = np.zeros(len(data.get_features()), dtype=bool)  # boolean array of the features used to fit the model
         self.sample_mask[training_inds] = 1
         self.inlier_mask = None  # boolean array, which of self.features is an inlier
         self._model_params = None
@@ -74,7 +74,7 @@ class RansacModel(ABC):
         (set self._model_params and self.inlier_mask)
         """
         pass
-    
+
     @staticmethod
     @abstractmethod
     def _animation_setup():
@@ -142,8 +142,7 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         'inliers': boolean array of inliers from the final model fit to the consensus set
         }
     """
-    features = data.get_features()
-    n_features = len(features)
+    n_features = len(data.get_features())
     n_min = model_type.get_n_min_features()
 
     best_so_far = None
@@ -159,7 +158,7 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         sample_inds = np.random.choice(n_features, n_min, replace=False)
 
         # fit the model to the sample
-        model = model_type(features, max_error, sample_inds, iter)
+        model = model_type(data, max_error, sample_inds, iter)
         n_inliers = np.sum(model.inlier_mask)
         logging.info("Iteration %i: %i inliers" % (iter, n_inliers))
 
@@ -178,7 +177,7 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
     consensus_inds = np.where(best_so_far.inlier_mask)[0]
 
     # fit the final model to the consensus set
-    model = model_type(features, max_error, consensus_inds, iter=max_iter)
+    model = model_type(data, max_error, consensus_inds, iter=max_iter)
     result = {'best': best_so_far, 'final': model}
 
     if animate_pause_sec is not None:

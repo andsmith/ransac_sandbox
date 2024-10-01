@@ -23,7 +23,7 @@ class RansacLineData(RansacDataFeatures):
         """
         Features for fitting a line to points are the points themselves.
         """
-        self._features = list(self._dataset)
+        self._features = self._dataset
 
     def plot(self, ax=None, inlier_mask=None):
         """
@@ -50,12 +50,12 @@ class RansacLine(RansacModel):
     """
     _N_MIN_FEATURES = 2  # need 2 points to define a line
 
-    def __init__(self, features, inlier_threshold, training_inds, iter=None):
+    def __init__(self, data, inlier_threshold, training_inds, iter=None):
         """
         Set model params a, b, c of the line a*x + b*y + c = 0.
         """
-        self._feature_arr = np.array(features)  # N x 2 array of points, for convenience
-        super().__init__(features, inlier_threshold, training_inds, iter)
+        self._feature_arr = np.array(data.get_features())  # N x 2 array of points, for convenience
+        super().__init__(data, inlier_threshold, training_inds, iter)
         self._fig, self._ax = None, None
 
     def __str__(self):
