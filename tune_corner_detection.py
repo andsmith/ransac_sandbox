@@ -23,6 +23,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from itertools import product
 from image_util import TestImage
+from greedy_assign import greedy_assign
 from multiprocessing import Pool, cpu_count
 import logging
 from scipy import interpolate
@@ -123,7 +124,8 @@ class CornerDetectionTrial(object):
         # Create the second image, detect corners, and transform the corners from the first image to the second.
         image2, transf = image1.transform(self.noise_frac)
         corners2 = np.array(image2.find_corners(margin=self.margin, harris_kwargs=self.params))
-        true_corners2 = image2.transform_coords(transf, corners1, margin=self.margin)
+        true_corners2, valid = image2.transform_coords(transf, corners1, margin=self.margin)
+        true_corners2 = true_corners2[valid]
         score2, n_correct = self._score_2(corners1, corners2, true_corners2)
         score = score1 * score2
         if self.plot and t_index == 0:
@@ -163,19 +165,9 @@ class CornerDetectionTrial(object):
             return 0
 
         # Calculate the distance between each pair of corners
-        dists = np.linalg.norm(corners2[:, None] - true_corners2[None], axis=-1).T
-        big_dist = (np.max(dists) + max_dist_px) * 2.0  # big distance to use for already matched corners
-        assigned_2 = np.zeros(len(corners2), dtype=bool)  # False if corner has not yet been assigned to a true corner
-
-        # Assign each true corner to the closest detected corner and
-        #    remove the true corner from the unassigned list.
-        # Break when the distance is less than max_dist_px.
-        for i in range(len(true_corners2)):
-            dist_row = dists[i] + big_dist * assigned_2  # don't match this true corner to any already matched corner
-            if np.min(dist_row) < max_dist_px:
-                j = np.argmin(dist_row)
-                assigned_2[j] = True
-        return np.sum(assigned_2) / len(assigned_2), np.sum(assigned_2)
+        dists = np.linalg.norm(true_corners2[:, None] - corners2[None], axis=-1).T
+        assigns, _, _ = greedy_assign(dists, max_dist_px)
+        return len(assigns) / len(corners2), len(assigns)
 
     def eval(self):
         """
@@ -200,7 +192,7 @@ class CornerDetectionTrial(object):
         if self.mean_corners_2 is not None:
             report+="\tmean corners in 2:  %i" % (self.mean_corners_2, )
             report+="\tmean correct corners:  %i" % (self.mean_correct_corners, )
-        print(report)   
+        print(report)   # no logging in subprocesses?
         return self
 
 
@@ -315,13 +307,13 @@ def optimize(noise_frac, kind, plot=True):
         blockSize_vals = [2,4,6,8]
         kSize_vals = [ 3, 7, 11,13,15,17,19,21,23,25]
         k_vals = np.arange(0.03, 0.1, .005).tolist()
-        n_reps = 40
+        n_reps = 10
     else:
         # smaller range of parameters to test, for debugging
         blockSize_vals = [2, 3, 4,5,6,7]
         kSize_vals = [3, 5, 7]
         k_vals = [.04, .05, .06]
-        n_reps = 2
+        n_reps = 10
 
     best_params, score = tune(img_size, blockSize_vals, kSize_vals, k_vals,
                               noise_frac, n_trials_per_param=n_reps, n_cores=15, kind=kind, plot=plot)

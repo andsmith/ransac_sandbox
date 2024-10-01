@@ -33,7 +33,7 @@ class RansacDataFeatures(ABC):
 
     def get_n_features(self):
         return len(self._features)
-    
+
     def get_features(self, mask=None, indices=None):
         """
         Get the features extracted from the data (used by RansacModel._fit).
@@ -157,7 +157,6 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         }
     """
     best_so_far = None
-    ax = None
     logging.info("Running RANSAC on %i features" % data.get_n_features())
 
     if animate_pause_sec is not None:
@@ -186,6 +185,7 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
                 plt.waitforbuttonpress()
             else:
                 plt.pause(animate_pause_sec)
+
     # gather inliers from best iteration (consensus set)
     consensus_inds = np.where(best_so_far.inlier_mask)[0]
 

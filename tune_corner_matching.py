@@ -20,7 +20,8 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
     qimg2, corners2 = data2
     img1, img2 = qimg1.rgb_img, qimg2.rgb_img
 
-    true_corners = qimg1.transform_coords(transf, corners1, margin=MARGIN)
+    true_corners, in_bounds = qimg1.transform_coords(transf, corners1, margin=MARGIN)
+    true_corners = true_corners[in_bounds]
 
     window_size = 21  # size of the window around each corner to extract a descriptor (pixels)
 
@@ -38,19 +39,13 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
     # Next to each image show the histogram.
     palette = qimg1.palette.astype(np.float32) / 255.
 
-    # in first window, plot the two images
-    fig, ax = plt.subplots(1, 2)
-    plot_trial(ax[0], qimg1, None, None, "image 1")
-    plot_trial(ax[1], qimg2, None, None, "image 2\n(transf of image 1 + noise)")
-    plt.show()
-
-    # in second window, plot the two images, detected corners & "true" corners (in image2):
+    # in this window, plot the two images, detected corners & "true" corners (in image2):
     fig, ax = plt.subplots(1, 2)
     plot_trial(ax[0], qimg1, corners1, None, "image 1,\ndetected corners (dots)")
     plot_trial(ax[1], qimg2, corners2, true_corners, "image 2,\ndetected corners (dots),\nimage 1 corners, transferred (+)")
     plt.show()
 
-    # in the third, show the matches:
+    # in this, show the matches:
 
     def _plot_hist(ax, hist):
         """
@@ -107,10 +102,11 @@ def _test_similarity_metric(data1, data2, transf, plot=False):
 
     # Annotate plots window with separation lines under first row and between best/worst rows.
     # get the y-coordinates between the first and second row in figure coordinates.
-    _, y1 = ax[1, 0].transAxes.transform([0, 1.15])
-    _, y2 = ax[n_match_examples, 0].transAxes.transform([0, -.24])
+    _, y1 = ax[1, 0].transAxes.transform([0, 1.10])
+    _, y2 = ax[n_match_examples, 0].transAxes.transform([0, -.27])
     y1 = fig.transFigure.inverted().transform([0, y1])[1]
     y2 = fig.transFigure.inverted().transform([0, y2])[1]
+
     # x limits are 5% and 95% of the figure width
     x1 = 0.12
     x2 = 0.90

@@ -60,16 +60,17 @@ class TestImage(object):
             'scale': the scale factor,
             'M': transformation matrix (from cv2.getAffineTransform)
 
-        :returns: an Mx2 array of transformed points
+        :returns: an Mx2 array of transformed points, 
+                an M element array of booleans indicating if the point is within the image bounds
         """
         img1_px = np.array(img1_px).reshape(-1, 2)
         img1_px = np.hstack([img1_px, np.ones((len(img1_px), 1))])
         img2_px = np.dot(transf['M'], img1_px.T).T
         # img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
 
-        img2_px = img2_px[(img2_px[:, 0] >= margin) & (img2_px[:, 0] < self.size[0]-margin) &
-                          (img2_px[:, 1] >= margin) & (img2_px[:, 1] < self.size[1]-margin)]
-        return img2_px
+        valid = (img2_px[:, 0] >= margin) & (img2_px[:, 0] < self.size[0]-margin) & \
+                          (img2_px[:, 1] >= margin) & (img2_px[:, 1] < self.size[1]-margin)
+        return img2_px, valid
 
     @staticmethod
     def compare_descriptors(hist1, hist2):

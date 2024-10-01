@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import pprint
 import matplotlib.pyplot as plt
+from util import get_random_affine_transf
 
 
 def draw_img(size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
@@ -60,7 +61,6 @@ def _test_draw_img():
     plt.imshow(img_rgb)
     plt.show()
 
-
 def transform_img(img, noise_frac=0., max_color_ind=None):
     """
     Transform the image by applying a random affine transformation to the image and palette.
@@ -77,15 +77,9 @@ def transform_img(img, noise_frac=0., max_color_ind=None):
 
     # Make an affine transformation & apply it to create the second image
     size = (img.shape[1], img.shape[0])
-    transform_angle = np.pi/3 + np.random.rand() * np.pi/3
-    transform_scale = 1.1 + np.random.rand() * 0.4
-    transform_translation = np.random.randn(2) * 40
-    M = cv2.getRotationMatrix2D(
-        (size[0]//2, size[1]//2), transform_angle*180/np.pi, transform_scale)
-    M[:, 2] += transform_translation
-
+    transf = get_random_affine_transf(size)
     # don't do any interpolation between color values, since they are indices
-    img2 = cv2.warpAffine(img, M, size, flags=cv2.INTER_NEAREST, borderValue=int(img[0, 0]))
+    img2 = cv2.warpAffine(img, transf['M'], size, flags=cv2.INTER_NEAREST, borderValue=int(img[0, 0]))
 
     # Colors are not aranged in any order so if the transform interpolates pallette indices, artifacts will show.
     c2 = set(img2.reshape(-1))
@@ -93,17 +87,13 @@ def transform_img(img, noise_frac=0., max_color_ind=None):
     assert c2.issubset(c1), "Transform added a color not in the original image:  %s" % (c2 - c1,)
 
     # Add noise by changing some pixels to another color
-    x = img2.copy()
     if noise_frac > 0:
         max_color_ind = max_color_ind if max_color_ind is not None else np.max(img) + 1
         noise = np.where(np.random.rand(*img.shape) < noise_frac)
         noise_colors = np.random.randint(
             0, max_color_ind, noise[0].size)
         img2[noise] = noise_colors
-    return img2, {'M': M,
-                  'angle': transform_angle,
-                  'scale': transform_scale,
-                  'translation': transform_translation}
+    return img2, transf
 
 
 def _test_transform_img():
@@ -117,7 +107,6 @@ def _test_transform_img():
     ax[0].axis('off')
     ax[1].axis('off')
     plt.show()
-
 
 
 if __name__ == '__main__':

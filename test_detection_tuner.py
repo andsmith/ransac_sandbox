@@ -55,7 +55,8 @@ def _plot_corner_detector(noise_frac=0.0):
     img2, transf = img1.transform(noise_frac=noise_frac)
     corners1 = img1.find_corners(harris_kwargs=params,margin=margin)
     corners2 = img2.find_corners(harris_kwargs=params,margin=margin)
-    true_corners2 = img1.transform_coords(transf, corners1,margin=margin)
+    true_corners2, valid = img1.transform_coords(transf, corners1,margin=margin)
+    true_corners2 = true_corners2[valid]
 
     fig, ax = plt.subplots(1, 2)
     ax[0].imshow(img1.rgb_img)
