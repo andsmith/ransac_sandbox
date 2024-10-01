@@ -23,9 +23,9 @@ def demo(n_line_pts, n_outliers, **ransac_args):
     print('\tInliers: %i of %i (%.1f %%)' % ((result['best'].inlier_mask.sum()),
                                              len(result['best'].inlier_mask),
                                              100*(result['best'].inlier_mask.mean())))
-    print("\nEstimated params of line:\n\t%.3f*x + %.3f*y + %.3f = 0" %
+    print("\n\tEstimated params of line:\n\n\t\t%.3f x + %.3f y + %.3f = 0" %
           tuple(result['final'].get_params()))
-    print("\nTrue params of line:\n\t%.3f*x + %.3f*y + %.3f = 0" % tuple(params))
+    print("\n\tTrue params of line:\n\n\t\t%.3f x + %.3f y + %.3f = 0\n\n" % tuple(params))
 
 
 if __name__ == '__main__':

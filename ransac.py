@@ -74,17 +74,7 @@ class RansacModel(ABC):
         (set self._model_params and self.inlier_mask)
         """
         pass
-
-    @abstractmethod
-    def evaluate(self, features):
-        """
-        evaluate model w/ the set of features
-
-        :param features: list of N features to evaluate (as returned by RansacDataset.get_features)
-        :returns: list of N model outputs (floats)
-        """
-        pass
-
+    
     @staticmethod
     @abstractmethod
     def _animation_setup():

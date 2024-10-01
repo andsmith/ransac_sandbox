@@ -79,15 +79,6 @@ class RansacLine(RansacModel):
         """
         RansacModel._FIG, RansacModel._AXES = plt.subplots(1, 2)
 
-    def evaluate(self, features):
-        """
-        Return the perpendicular distance from each point to the line.
-
-        :param data: a Nx2 array of points
-        :returns: an array of N distances, one for each point
-        """
-        return point_line_distances(features, *self._model_params)
-
     def plot_iteration(self, data, best_so_far, is_final=False, max_iter=None):
         """
         2 plots, left is current iteration (self), with all points plotted, minimum sample, inliers/outliers distinguished 
