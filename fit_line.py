@@ -31,17 +31,15 @@ class RansacLineData(RansacDataFeatures):
         :param inlier_mask: boolean array indicating which points are inliers\
         """
         ax = ax if ax is not None else plt.gca()
+        point_size = 10
 
         # Plot all points
         if inlier_mask is None:
-            ax.plot(self._dataset[:, 0], self._dataset[:,
-                    1], 'k.', label='all points')
+            ax.scatter(self._dataset[:, 0], self._dataset[:, 1], c='k', label='all points', s=point_size)
         else:
             outliers = np.logical_not(inlier_mask)
-            ax.plot(self._dataset[outliers, 0], self._dataset[outliers, 1],
-                    'r.', label='outliers')
-            ax.plot(self._dataset[inlier_mask, 0], self._dataset[inlier_mask, 1],
-                    'b.', label='inliers')
+            ax.scatter(self._dataset[inlier_mask, 0], self._dataset[inlier_mask, 1], c='b', label='inliers', s=point_size)
+            ax.scatter(self._dataset[outliers, 0], self._dataset[outliers, 1], c='r', label='outliers', s=point_size)   
 
         return ax
 
@@ -52,27 +50,27 @@ class RansacLine(RansacModel):
     """
     _N_MIN_FEATURES = 2  # need 2 points to define a line
 
-    def __init__(self, features):
+    def __init__(self, features, inlier_threshold, training_inds, iter=None):
         """
         Set model params a, b, c of the line a*x + b*y + c = 0.
         """
-        super().__init__(features=features)
+        self._feature_arr = np.array(features)  # N x 2 array of points, for convenience
+        super().__init__(features, inlier_threshold, training_inds, iter)
         self._fig, self._ax = None, None
 
     def __str__(self):
         return "Line: %.3f*x + %.3f*y + %.3f = 0" % tuple(self._model_params)
 
-    @staticmethod
-    def _fit(features):
+    def _fit(self):
         """
-        Fit a line to the set of points:
+        Fit a line to the set of points indicated by self.sample_mask.
             - if N=2, the line will be through the points exactly.
             - otherwise, the line will be the least squares fit.
-
-        :param features: N points in 2d space
-        :returns: a LineEstimator object w/ the model params.
         """
-        return fit_line(np.array(features))
+        train_features = self._feature_arr[self.sample_mask]
+        self._model_params = fit_line(train_features)
+        distances = point_line_distances(self._feature_arr, *self._model_params)
+        self.inlier_mask = distances < self.thresh
 
     @staticmethod
     def _animation_setup():
@@ -88,12 +86,15 @@ class RansacLine(RansacModel):
         :param data: a Nx2 array of points
         :returns: an array of N distances, one for each point
         """
-        return point_line_distances(np.array(features), *self._model_params)
+        return point_line_distances(features, *self._model_params)
 
-    def plot_iteration(self, data, current_model, best_model, is_final=False):
+    def plot_iteration(self, data, best_so_far, is_final=False, max_iter=None):
         """
-        2 plots, left is current iteration, with all points plotted, minimum sample, inliers/outliers distinguished 
-        & fit line.  Right is the same for the best iteration's model
+        2 plots, left is current iteration (self), with all points plotted, minimum sample, inliers/outliers distinguished 
+        & fit line.  Right is the same for the best iteration's model so far.
+        :param data: the RansacData object
+        :param best_so_far: the best model so far (RansacModel)
+        :param is_final: whether this is the final plot
         """
 
         if RansacModel._AXES is None:
@@ -101,58 +102,61 @@ class RansacLine(RansacModel):
         axes = RansacModel._AXES
 
         if is_final:
-            print("n_features_used: ", len(current_model['sample']))
             title = 'Final RANSAC model after %i iterations\niter %i had %i inliers (%.2f %%)' % \
-                (current_model['iter']+1, best_model['iter']+1,
-                 np.sum(best_model['inliers']),
-                 100*np.mean(best_model['inliers']))
+                (self.iter,
+                 best_so_far.iter+1,
+                 np.sum(best_so_far.inlier_mask),
+                 100*np.mean(best_so_far.inlier_mask))
 
             fig, ax = plt.subplots(1)
 
-            # Final plot has data w/ inliers
-            data.plot(ax, inlier_mask=current_model['inliers'])
+            # Final plot has data w/ inliers & sample from best model
+            data.plot(ax, inlier_mask=best_so_far.inlier_mask)
 
             # the sample used to find the inliers
-            ax.scatter(*np.array(best_model['sample']).T, s=50,
+            sample_pts = self._feature_arr[best_so_far.sample_mask]
+            ax.scatter(*sample_pts.T, s=50,
                        label='sample', facecolors='none', edgecolors='b', linewidth=1)
 
             # the model fitting the sample
-            plot_line(*best_model['model'].get_params(), ax=ax,
-                      plt_args=['b-'], plt_kwargs={'label': 'best model\niter %i' % (best_model['iter']+1)})
+            plot_line(*best_so_far.get_params(), ax=ax,
+                      plt_args=['b-'], plt_kwargs={'label': 'best model, iter %i' % (best_so_far.iter+1)})
 
             # the model fitting the consensus set (inliers)
-            plot_line(*current_model['model'].get_params(), ax=ax,
+            plot_line(*self._model_params, ax=ax,
                       plt_args=['g-'], plt_kwargs={'label': 'final model'})
 
             # a least-squares fit to all points, as a baseline
-            plot_line(*fit_line(data._dataset), ax=ax,
-                      plt_args=['k--'], plt_kwargs={'label': 'LS fit\nall data'})
+            plot_line(*fit_line(self._feature_arr), ax=ax,
+                      plt_args=['k--'], plt_kwargs={'label': 'LS fit, all data'})
 
             ax.legend()
             ax.set_title(title)
         else:
             title = 'iteration %i found %i inliers' % \
-                    (current_model['iter']+1, np.sum(current_model['inliers']))
+                    (self.iter+1, np.sum(self.inlier_mask))
 
-            title_best = 'best iteration (%i): %i inliers' % (best_model['iter']+1, np.sum(best_model['inliers']))
+            title_best = 'best iteration (%i): %i inliers' % (best_so_far.iter+1, np.sum(best_so_far.inlier_mask))
 
             # Clear the axes
             for a in axes:
                 a.clear()
 
-            def _plot(ax, model, line_label, plot_str='b-'):
+            def _plot(ax, plot_model, line_label, plot_str='b-'):
                 """
-                Plot the points, sample features, model (line), inliers/outliers.
+                Plot the points, (Best) sample features, model (line), inliers/outliers.
                 """
-                data.plot(ax, inlier_mask=model['inliers'])
-                ax.scatter(*np.array(model['model']._features).T, s=50,
+                data.plot(ax, inlier_mask=plot_model.inlier_mask)
+
+                ax.scatter(*np.array(plot_model._feature_arr[plot_model.sample_mask]).T, s=50,
                            label='model features', facecolors='none', edgecolors='b', linewidth=1)
-                plot_line(*model['model'].get_params(), ax=ax,
+                plot_line(*plot_model.get_params(), ax=ax,
                           plt_args=[plot_str], plt_kwargs={'label': line_label})
 
-            _plot(axes[0], current_model, '')
-            _plot(axes[1], best_model, 'fit line')
+            _plot(axes[0], self, '')
+            _plot(axes[1], best_so_far, 'fit line')
             axes[0].set_title(title)
             axes[1].set_title(title_best)
             axes[1].legend()
-            plt.draw()
+            plt.suptitle("RANSAC Line Fitting:  iter %i of %i" % (self.iter+1, max_iter,))
+        plt.draw()

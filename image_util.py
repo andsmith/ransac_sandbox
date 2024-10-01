@@ -33,7 +33,7 @@ class TestImage(object):
     def _init(self):
         self.n_colors = self.palette.shape[0]
         self.rgb_img = self.palette[self.img].astype(self.palette.dtype)
-        self.gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_RGB2GRAY).astype(np.float32)
+        self.gray = cv2.cvtColor(self.rgb_img, cv2.COLOR_RGB2GRAY)
 
     def transform(self, noise_frac):
         """
@@ -65,9 +65,8 @@ class TestImage(object):
         img1_px = np.array(img1_px).reshape(-1, 2)
         img1_px = np.hstack([img1_px, np.ones((len(img1_px), 1))])
         img2_px = np.dot(transf['M'], img1_px.T).T
-        #img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
+        # img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
 
-        
         img2_px = img2_px[(img2_px[:, 0] >= margin) & (img2_px[:, 0] < self.size[0]-margin) &
                           (img2_px[:, 1] >= margin) & (img2_px[:, 1] < self.size[1]-margin)]
         return img2_px
@@ -111,7 +110,7 @@ class TestImage(object):
         hist /= np.sum(hist)
         return hist
 
-    def find_corners(self,harris_kwargs=None, margin=0):
+    def find_corners(self, harris_kwargs=None, margin=0):
         """
         Find corners in an image using the Harris corner detector.
         :param margin: don't return corners within this many pixels of the edge
@@ -128,7 +127,7 @@ class TestImage(object):
         if harris_kwargs is not None:
             default_harris_kwargs.update(harris_kwargs)
 
-        dst = cv2.cornerHarris(self.gray, **default_harris_kwargs)
+        dst = cv2.cornerHarris(self.gray.astype(np.float32), **default_harris_kwargs)
 
         # Dilate to mark the corners
         dst = cv2.dilate(dst, None)
@@ -148,43 +147,63 @@ class TestImage(object):
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
 
         try:
-            corners = cv2.cornerSubPix(self.gray, np.float32(
+            corners = cv2.cornerSubPix(self.gray.astype(np.float32), np.float32(
                 centroids), (5, 5), (-1, -1), criteria)
-            
-            
+
         except cv2.error:
             # print min/max x/y of centroids
             print("Error in cornerSubPix: ", centroids.min(axis=0), centroids.max(axis=0))
             print("returning centroids without subpixel refinement.")
             print("\tCentroid range: ", centroids.min(axis=0), centroids.max(axis=0))
             print("\tNumber of centroids found: ", len(centroids))
-            corners=centroids
+            corners = centroids
 
         # Filter out corners near the edge
         corners = corners[(corners[:, 0] > margin) & (corners[:, 0] < self.img.shape[1]-margin) &
                           (corners[:, 1] > margin) & (corners[:, 1] < self.img.shape[0]-margin)]
         return corners
 
-    def plot(self, ax=None):
+    def plot(self, ax=None, which='both'):
         """
-        Plot the image (RGB & grayscale) side by side.
+        Plot the image (RGB & grayscale) side by side if no axis given.
         :param ax: the axis to plot in (if None, create a new figure)
+        :param which: 'rgb' or 'gray' or 'both' 
         """
+        if ax is not None and which == 'both':
+            raise ValueError("If an axis is given, which must be 'rgb' or 'gray'")
+        if which not in ['rgb', 'gray', 'both']:
+            raise ValueError("which must be one of 'rgb', 'gray', or 'both'")
+        #import ipdb; ipdb.set_trace()
         if ax is None:
-            fig, ax = plt.subplots(1, 2)
-        ax[0].imshow(self.rgb_img)
-        ax[0].set_title('RGB')
-        ax[1].imshow(self.gray, cmap='gray')
-        ax[1].set_title('Grayscale')
+            if which == 'both':
+                print("Creating subplots")
+                fig, ax = plt.subplots(1, 2)
+            else:
+                print("Creating single plot")
+                fig, ax = plt.subplots()
+                ax = [ax, ax]
+
+        if which in ['rgb', 'both']:
+            print("Plotting RGB")
+            ax[0].imshow(self.rgb_img)
+            ax[0].set_title('RGB Image')
+            ax[0].axis('off')
+
+        if which in ['gray', 'both']:
+            print("Plotting Grayscale")
+            ax[1].imshow(self.gray,cmap='gray')
+            ax[1].set_title('Grayscale Image')
+            ax[1].axis('off')
+
         return ax
 
 
 def _test_image(plot=False):
     q_img1 = TestImage((400, 400))
     if plot:
-        q_img1.plot()
-        plt.suptitle('Test Image', fontsize=16)
+        q_img1.plot(which='both')
         plt.show()
+        plt.pause(0)
     return q_img1
 
 

@@ -18,6 +18,7 @@ class RansacDataFeatures(ABC):
     """
 
     def __init__(self, data):
+
         self._dataset = data
         self._features = []
         self._extract_features()
@@ -26,16 +27,6 @@ class RansacDataFeatures(ABC):
     def _extract_features(self):
         """
         Extract all features from the data, storing them in self._features.
-        """
-        pass
-
-    @abstractmethod
-    def plot(self, ax=None, inlier_mask=None):
-        """
-        Plot the dataset & features (req to animate demos).
-        :param ax: the axis to plot on
-        :param inlier_mask: boolean array indicating which points are inliers, or None if no distinction is to be visualized
-        :returns: the axis
         """
         pass
 
@@ -51,10 +42,24 @@ class RansacModel(ABC):
 
     _FIG, _AXES = None, None  # class-level variables for plotting different models in the same figure
 
-    def __init__(self, features):
-        self._features = features  # remember for plotting
-        self._model_params = self._fit(features)
+    def __init__(self, features, inlier_threshold, training_inds, iter=None):
+        """
+        Initialize the model with the given features.
+        :param features: list of N features to fit (as returned by RansacDataset.get_features)
+        :param inlier_threshold: threshold for inliers (will depend on implementation of RansacModel.evaluate)
+        :param training_inds: list of indices of the features used to fit this RansacModel.
+        :param iter: iteration number, for bookkeeping
+        """
+        self.iter = iter
+        self.thresh = inlier_threshold
+        self.features = features
+        self.sample_mask = np.zeros(len(features), dtype=bool)  # boolean array of the features used to fit the model
+        self.sample_mask[training_inds] = 1
+        self.inlier_mask = None  # boolean array, which of self.features is an inlier
+        self._model_params = None
         self._check_params()
+
+        self._fit()
 
     @classmethod
     def _check_params(cls):
@@ -65,9 +70,8 @@ class RansacModel(ABC):
     @abstractmethod
     def _fit(self):
         """
-        Fit the model to the features.  There will either be the minimum number required to fit a model,
-        or possibly more (the final inlier set)
-        :returns: the model parameters
+        Fit the model to the training sample, determine all features' inliers status.
+        (set self._model_params and self.inlier_mask)
         """
         pass
 
@@ -91,7 +95,7 @@ class RansacModel(ABC):
         pass
 
     @abstractmethod
-    def plot_iteration(self, data, current_model, best_model, is_final=False):
+    def plot_iteration(self, data, best_so_far, is_final=False):
         """
         Plot the current status (or final).
 
@@ -108,13 +112,7 @@ class RansacModel(ABC):
             - the current model (i.e. the final model fit to the consensus set)
 
         :param data: the RansacDataFeatures object containing the data & extracted features
-
-        :param current_model: dict: {'iter': current iteration number
-                             'sample': sample used to fit the best model  (should be self._features)
-                             'model': RansacModel object, fit from that sample (i.e. self)
-                             'inliers': inliers, boolean array index of data.
-                             }
-        :param best_model: dict: (same from best iteration so far)
+        :param best_so_far: RansacModel object, the best model found so far
         :param is_final: bool, True if the final model is being plotted ()
         """
     pass
@@ -149,13 +147,8 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         - >0: plot each iteration, pausing for the given number of seconds
 
     :returns: dict with the following structure:
-        {'best': {'iter': best iteration number,
-                  'sample': sample used to fit the best model,
-                  'model': best model,
-                  'inliers': boolean array, the consensus set of inliers},
-        'final': {'model': final model fit to the consensus set,
-                  'iter':  total iterations run },
-        'features': the list of extracted features,
+        {'best': RansacModel object, the best model found in all iterations,
+        'final': final model fit to the consensus set
         'inliers': boolean array of inliers from the final model fit to the consensus set
         }
     """
@@ -172,47 +165,34 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         plt.ion()
 
     for iter in range(max_iter):
-
         # generate a random sample
         sample_inds = np.random.choice(n_features, n_min, replace=False)
-        sample = [features[j] for j in sample_inds]
 
         # fit the model to the sample
-        model = model_type(sample)
-        errors = model.evaluate(features)
-        inliers = errors <= max_error
+        model = model_type(features, max_error, sample_inds, iter)
+        n_inliers = np.sum(model.inlier_mask)
+        logging.info("Iteration %i: %i inliers" % (iter, n_inliers))
 
-        current_model = {'iter': iter, 'sample': sample,
-                         'model': model, 'inliers': inliers}
-        
-        logging.info("Iteration %i: %i inliers" % (iter, np.sum(inliers)))
-
-        if best_so_far is None or np.sum(inliers) > sum(best_so_far['inliers']):
-            best_so_far = current_model
-            print("New best model found on iteration %i: %i inliers" %
-                  (iter, np.sum(inliers)))
+        if best_so_far is None or n_inliers > best_so_far.inlier_mask.sum():
+            best_so_far = model
+            logging.info("--> New best model found on iteration %i: %i inliers" %
+                         (iter, n_inliers))
 
         if animate_pause_sec is not None:
-            model.plot_iteration(data, current_model, best_so_far, is_final=False)
+            model.plot_iteration(data, best_so_far, is_final=False, max_iter=max_iter)
             if animate_pause_sec == 0:
                 plt.waitforbuttonpress()
             else:
                 plt.pause(animate_pause_sec)
     # gather inliers from best iteration (consensus set)
-    good_features = np.array(features)[best_so_far['inliers']]
+    consensus_inds = np.where(best_so_far.inlier_mask)[0]
 
     # fit the final model to the consensus set
-    final_model = {'model': model_type(good_features),
-                   'iter': max_iter,
-                   'sample': good_features,
-                   'inliers': best_so_far['inliers']}
-
-    result = {'best': best_so_far, 'final': final_model, 'features': features, 'consensus': best_so_far['inliers']}
+    model = model_type(features, max_error, consensus_inds, iter=max_iter)
+    result = {'best': best_so_far, 'final': model}
 
     if animate_pause_sec is not None:
-        model.plot_iteration(data, final_model, best_so_far, is_final=True)
+        model.plot_iteration(data, best_so_far, is_final=True)
         plt.pause(0)
-
-    result.update(best_so_far)
 
     return result
