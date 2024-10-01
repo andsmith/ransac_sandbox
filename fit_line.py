@@ -25,6 +25,18 @@ class RansacLineData(RansacDataFeatures):
         """
         self._features = self._dataset
 
+    def get_features(self, mask=None, indices=None):
+        """
+        Get the features extracted from the data (used by RansacModel._fit).
+        :param mask: boolean array, which features to return, must be set if indices is None
+        :param indices: array of indices of features to return, must be set if mask is None
+        :return: list of features (i.e. self._features[...])
+        """
+        if mask is None and indices is None:
+            return self._features
+        either = mask if mask is not None else indices
+        return self._features[either]
+
     def plot(self, ax=None, inlier_mask=None):
         """
         Plot the data points, coloring inliers and outliers differently.
@@ -54,7 +66,6 @@ class RansacLine(RansacModel):
         """
         Set model params a, b, c of the line a*x + b*y + c = 0.
         """
-        self._feature_arr = np.array(data.get_features())  # N x 2 array of points, for convenience
         super().__init__(data, inlier_threshold, training_inds, iter)
         self._fig, self._ax = None, None
 
@@ -67,9 +78,8 @@ class RansacLine(RansacModel):
             - if N=2, the line will be through the points exactly.
             - otherwise, the line will be the least squares fit.
         """
-        train_features = self._feature_arr[self.sample_mask]
-        self._model_params = fit_line(train_features)
-        distances = point_line_distances(self._feature_arr, *self._model_params)
+        self._model_params = fit_line(self.data.get_features(mask=self.sample_mask))
+        distances = point_line_distances(self.data.get_features(), *self._model_params)
         self.inlier_mask = distances < self.thresh
 
     @staticmethod
@@ -91,6 +101,7 @@ class RansacLine(RansacModel):
         if RansacModel._AXES is None:
             RansacLine._animation_setup()
         axes = RansacModel._AXES
+        points = data.get_features()
 
         if is_final:
             title = 'Final RANSAC model after %i iterations\niter %i had %i inliers (%.2f %%)' % \
@@ -101,11 +112,12 @@ class RansacLine(RansacModel):
 
             fig, ax = plt.subplots(1)
 
+
             # Final plot has data w/ inliers & sample from best model
             data.plot(ax, inlier_mask=best_so_far.inlier_mask)
 
             # the sample used to find the inliers
-            sample_pts = self._feature_arr[best_so_far.sample_mask]
+            sample_pts = points[best_so_far.sample_mask]
             ax.scatter(*sample_pts.T, s=50,
                        label='sample', facecolors='none', edgecolors='b', linewidth=1)
 
@@ -118,7 +130,7 @@ class RansacLine(RansacModel):
                       plt_args=['g-'], plt_kwargs={'label': 'final model'})
 
             # a least-squares fit to all points, as a baseline
-            plot_line(*fit_line(self._feature_arr), ax=ax,
+            plot_line(*fit_line(points), ax=ax,
                       plt_args=['k--'], plt_kwargs={'label': 'LS fit, all data'})
 
             ax.legend()
@@ -139,7 +151,7 @@ class RansacLine(RansacModel):
                 """
                 data.plot(ax, inlier_mask=plot_model.inlier_mask)
 
-                ax.scatter(*np.array(plot_model._feature_arr[plot_model.sample_mask]).T, s=50,
+                ax.scatter(*np.array(points[plot_model.sample_mask]).T, s=50,
                            label='model features', facecolors='none', edgecolors='b', linewidth=1)
                 plot_line(*plot_model.get_params(), ax=ax,
                           plt_args=[plot_str], plt_kwargs={'label': line_label})

@@ -15,6 +15,7 @@ import logging
 class RansacDataFeatures(ABC):
     """
     Base class for representing/preprocessing the data used in RANSAC solvers.
+    Extend to access whatever 
     """
 
     def __init__(self, data):
@@ -30,8 +31,20 @@ class RansacDataFeatures(ABC):
         """
         pass
 
-    def get_features(self):
-        return self._features
+    def get_n_features(self):
+        return len(self._features)
+    
+    def get_features(self, mask=None, indices=None):
+        """
+        Get the features extracted from the data (used by RansacModel._fit).
+
+        :param mask: boolean array, which features to return, must be set if indices is None
+        :param indices: list of indices of features to return, must be set if mask is None
+
+        (if both are None, return the full list)
+
+        :return: list of features (i.e. self._features[...])
+        """
 
 
 class RansacModel(ABC):
@@ -53,9 +66,10 @@ class RansacModel(ABC):
         self.iter = iter
         self.thresh = inlier_threshold
         self.data = data
-        self.sample_mask = np.zeros(len(data.get_features()), dtype=bool)  # boolean array of the features used to fit the model
+        # boolean array of the features used to fit the model
+        self.sample_mask = np.zeros(data.get_n_features(), dtype=bool)
         self.sample_mask[training_inds] = 1
-        self.inlier_mask = None  # boolean array, which of self.features is an inlier
+        self.inlier_mask = None  # boolean array, which of self.data._features is an inlier
         self._model_params = None
         self._check_params()
 
@@ -142,12 +156,9 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
         'inliers': boolean array of inliers from the final model fit to the consensus set
         }
     """
-    n_features = len(data.get_features())
-    n_min = model_type.get_n_min_features()
-
     best_so_far = None
     ax = None
-    logging.info("Running RANSAC on %i features" % n_features)
+    logging.info("Running RANSAC on %i features" % data.get_n_features())
 
     if animate_pause_sec is not None:
         logging.info("Animating RANSAC with pause of %.2f sec" % animate_pause_sec)
@@ -155,7 +166,9 @@ def solve_ransac(data, model_type, max_error, max_iter=100, animate_pause_sec=No
 
     for iter in range(max_iter):
         # generate a random sample
-        sample_inds = np.random.choice(n_features, n_min, replace=False)
+        sample_inds = np.random.choice(data.get_n_features(),
+                                       model_type.get_n_min_features(),
+                                       replace=False)
 
         # fit the model to the sample
         model = model_type(data, max_error, sample_inds, iter)
