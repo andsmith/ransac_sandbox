@@ -4,7 +4,7 @@ Demo of RANSAC algorithm, fitting a line to a set of points with outliers.
 import numpy as np
 import matplotlib.pyplot as plt
 
-from util import make_line_data, plot_line, point_line_distances, fit_line
+from util_line import make_line_data, plot_line, point_line_distances, fit_line
 from ransac import RansacModel, RansacDataFeatures, solve_ransac
 
 

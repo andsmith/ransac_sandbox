@@ -31,12 +31,10 @@ class RansacDataFeatures(ABC):
         """
         pass
 
-    def get_n_features(self):
-        return len(self._features)
-
+    @abstractmethod
     def get_features(self, mask=None, indices=None):
         """
-        Get the features extracted from the data (used by RansacModel._fit).
+        Get the features extracted from the data (probably used by RansacModel._fit).
 
         :param mask: boolean array, which features to return, must be set if indices is None
         :param indices: list of indices of features to return, must be set if mask is None
@@ -45,6 +43,10 @@ class RansacDataFeatures(ABC):
 
         :return: list of features (i.e. self._features[...])
         """
+
+    def get_n_features(self):
+        return len(self._features)
+
 
 
 class RansacModel(ABC):

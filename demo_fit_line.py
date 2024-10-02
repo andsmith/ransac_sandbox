@@ -1,6 +1,6 @@
 from ransac import solve_ransac
 from fit_line import RansacLineData, RansacLine
-from util import make_line_data, plot_line
+from util_line import make_line_data, plot_line
 import matplotlib.pyplot as plt
 import logging
 
