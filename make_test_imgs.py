@@ -2,8 +2,7 @@ import numpy as np
 import cv2
 import pprint
 import matplotlib.pyplot as plt
-from util import get_random_affine_transf
-
+from util_affine import Affine
 
 def draw_img(size, n_rects=10, n_circle_colors=30, n_rect_colors=3):
     """
@@ -77,10 +76,10 @@ def transform_img(img, noise_frac=0., max_color_ind=None):
 
     # Make an affine transformation & apply it to create the second image
     size = (img.shape[1], img.shape[0])
-    transf = get_random_affine_transf(size)
+    transf = Affine.from_random(size)
     # don't do any interpolation between color values, since they are indices
-    img2 = cv2.warpAffine(img, transf['M'], size, flags=cv2.INTER_NEAREST, borderValue=int(img[0, 0]))
-
+    img2 = cv2.warpAffine(img, transf.M[:2,:], size, flags=cv2.INTER_NEAREST, borderValue=int(img[0, 0]))
+    # img2=transf.warp_image(img)
     # Colors are not aranged in any order so if the transform interpolates pallette indices, artifacts will show.
     c2 = set(img2.reshape(-1))
     c1 = set(img.reshape(-1))

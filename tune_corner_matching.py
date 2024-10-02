@@ -7,7 +7,7 @@ from tune_corner_detection import plot_trial
 
 MARGIN=10  # reject corners within this distance of the image border
 
-def _test_similarity_metric(data1, data2, transf, plot=False):
+def tune_similarity_metric(data1, data2, transf, plot=False):
     """
     Create a dataset, image pair. find corners, extract histograms, and create pairwise similarity matrix.
     Show a grid showing up to the first 10 of those corner windows on the top row, and below each, the
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     corners1 = q_img1.find_corners(harris_kwargs=params, margin=MARGIN)
     corners2 = q_img2.find_corners(harris_kwargs=params, margin=MARGIN)
 
-    _test_similarity_metric((q_img1, corners1),
+    tune_similarity_metric((q_img1, corners1),
                             (q_img2, corners2),
                             transf=transf, plot=True)
 

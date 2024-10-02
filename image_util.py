@@ -54,18 +54,12 @@ class TestImage(object):
         Coordinates transformed out of bounds (WRT self.size) will be removed
 
         :param img1_px: an Nx2 array of points in image 1
-        :param transf: the transformation dict w keys:
-            'angle': the rotation angle,
-            'translation': the translation vector,
-            'scale': the scale factor,
-            'M': transformation matrix (from cv2.getAffineTransform)
+        :param transf: an Affine object (from util_affine)
 
         :returns: an Mx2 array of transformed points, 
                 an M element array of booleans indicating if the point is within the image bounds
         """
-        img1_px = np.array(img1_px).reshape(-1, 2)
-        img1_px = np.hstack([img1_px, np.ones((len(img1_px), 1))])
-        img2_px = np.dot(transf['M'], img1_px.T).T
+        img2_px = transf.apply(img1_px)
         # img2_px = img2_px[:, :2] / img2_px[:, 2].reshape(-1, 1)
 
         valid = (img2_px[:, 0] >= margin) & (img2_px[:, 0] < self.size[0]-margin) & \

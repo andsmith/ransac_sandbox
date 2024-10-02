@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from scipy.interpolate import interp2d
 
 
 class Affine(object):
@@ -61,13 +62,13 @@ class Affine(object):
         if restricted:
             #  Good range for demo
             transform_angle = np.pi/3 + np.random.rand() * np.pi/3
-            transform_scale = 1.1 + np.random.rand() * 0.4
+            transform_scale = 1.4 + np.random.rand() * 0.3
             transform_translation = np.random.randn(2) * 40
         else:
             print("CONSTANT TESTING PARAMS")
-            transform_angle =  np.random.rand() * 2 * np.pi
-            transform_scale =  0.5 + np.random.rand() * 2
-            transform_translation = np.random.randn(2) * 100
+            transform_angle = np.pi/6# np.random.rand() * 2 * np.pi
+            transform_scale =  1.#0.5 + np.random.rand() * 2
+            transform_translation = np.random.randn(2) * 0
         return Affine(size, transform_angle, transform_scale, transform_translation)
 
     @staticmethod
@@ -109,6 +110,23 @@ class Affine(object):
         pts_out = np.dot(self.M, pts_h.T).T
         pts_out = pts_out[:, :2] / pts_out[:, 2][:, None]
         return pts_out
+    
+    def warp_image(self, image):
+        """
+        Apply the affine transform to the given image.
+        """
+        #return cv2.warpAffine(img, self.M[:2], self.size)
+        xg, yg = np.meshgrid(np.arange(self.size[0]), np.arange(self.size[1]))
+        fill = image[0,0]
+        inv = np.linalg.inv(self.M)
+        x = xg.flatten()
+        y = yg.flatten()
+        pts = np.vstack((x, y)).T
+        pts_transformed = inv.apply(pts)
+        pts_transformed = pts_transformed.reshape(self.size[1], self.size[0], 2)
+        f = interp2d(x,y, image, kind='nearest', fill_value=fill)
+        return f(pts_transformed[:,:,0], pts_transformed[:,:,1])
+
 
 
 def test_affine(plot=True):
