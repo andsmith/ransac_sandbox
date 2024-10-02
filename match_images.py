@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ransac import RansacModel, RansacDataFeatures
 import cv2
-from util import fit_affine_transform
+from util_affine import Affine
 from image_util import TestImage
 import logging
 
@@ -29,13 +29,24 @@ class RansacImageData(RansacDataFeatures):
         :param harris_kwargs: dictionary of parameters for the Harris corner detector.
         :param matcher_threshold: threshold for matching descriptors (see TestImage.compare_descriptors). 
         """
+        self.corners_1, self.corners_2 = None, None
+        self.desc_1, self.desc_2 = None, None
+
         self._harris_kwargs = harris_kwargs
         self._margin = 15
         self._m_threshold = matcher_threshold
         logging.info("RansacImageData created, extracting features...")
         super().__init__(data)  # calls _extract_features
 
-    def _extract_features(self, filter_unused=True):
+    def get_features(self, mask=None, indices=None):
+        if mask is not None:
+            return [self._features[i] for i in range(len(self._features)) if mask[i]]
+        elif indices is not None:
+            return [self._features[i] for i in indices]
+        else:
+            return self._features
+
+    def _extract_features(self, filter_unused=False):
         """
         Find interest points in both images, extract their descriptors, match them.
         A "feature" for RANSAC is a pair of points with a high matching score.
@@ -48,13 +59,13 @@ class RansacImageData(RansacDataFeatures):
         self.corners_2 = img2.find_corners(harris_kwargs=self._harris_kwargs, margin=self._margin)
         logging.info('\tFound %d corners in image 1.' % len(self.corners_1))
         logging.info('\tFound %d corners in image 2.' % len(self.corners_2))
-        self._desc_1 = [img1.get_patch_descriptor(c, PATCH_SIZE, smoothing=SMOOTHING) for c in self.corners_1]
-        self._desc_2 = [img2.get_patch_descriptor(c, PATCH_SIZE, smoothing=SMOOTHING) for c in self.corners_2]
+        self.desc_1 = [img1.get_patch_descriptor(c[0], c[1], PATCH_SIZE, smoothing=SMOOTHING) for c in self.corners_1]
+        self.desc_2 = [img2.get_patch_descriptor(c[0], c[1], PATCH_SIZE, smoothing=SMOOTHING) for c in self.corners_2]
 
         # match interest points to get candidates features (corresponding pairs)
         matches = []
-        for i, d1 in enumerate(self._desc_1):
-            for j, d2 in enumerate(self._desc_2):
+        for i, d1 in enumerate(self.desc_1):
+            for j, d2 in enumerate(self.desc_2):
                 if TestImage.compare_descriptors(d1, d2) < self._m_threshold:
                     matches.append((i, j))
         logging.info('\tFound %d candidate features.' % len(matches))
@@ -62,7 +73,7 @@ class RansacImageData(RansacDataFeatures):
         if filter_unused:
             # find used & unused corners
             used_1, used_2 = list(set([m[0] for m in matches])), list(set([m[1] for m in matches]))
-            
+
             # create reverse look-up to re map indices, so matches[_] = (i,j) indexes corner lists with only used corners
             used_1_map = {i: j for j, i in enumerate(used_1)}
             used_2_map = {i: j for j, i in enumerate(used_2)}
@@ -70,9 +81,89 @@ class RansacImageData(RansacDataFeatures):
             matches = [(used_1_map[i], used_2_map[j]) for i, j in matches]
             self.corners_1 = [self.corners_1[i] for i in used_1]
             self.corners_2 = [self.corners_2[j] for j in used_2]
-
+            self.desc_1 = [self.desc_1[i] for i in used_1]
+            self.desc_2 = [self.desc_2[j] for j in used_2]
+            logging.info('\tFiltered to %d features.' % len(matches))
 
         self._features = matches
+
+    _SPACING = 20
+
+    def plot_side_by_side(self, axis, which='gray'):
+        img1, img2 = self._dataset
+        if which == 'gray':
+            spacer = np.zeros((img1.gray.shape[0], RansacImageData._SPACING), dtype=np.uint8) + 255
+            axis.imshow(np.concatenate((img1.gray, spacer, img2.gray), axis=1), cmap='gray')
+        elif which == 'color':
+            spacer = np.zeros((img1.rgb_img.shape[0], RansacImageData._SPACING, 3), dtype=np.uint8) + 255
+            axis.imshow(np.concatenate((img1.rgb_img, spacer, img2.rgb_img), axis=1))
+
+        x_offset = img1.gray.shape[1] + RansacImageData._SPACING
+
+        return x_offset
+
+    def plot_features(self, axis, sample_inds=None, draw_image='gray'):
+        """
+        Draw images side-by-side with all corners detected, and lines of the same color from each corner in image2 to the corresponding corner in image1.
+        If "sample_inds" is specified, draw the sample correspondences (points/lines) in green and only show these
+        """
+        CORNER_MARKERSIZE = 5
+        LINEWIDTH = 1
+
+        x_offset = self.plot_side_by_side(axis, draw_image)
+
+        f_list = [self._features[i] for i in sample_inds] if sample_inds is not None else self._features
+        logging.info("Drawing %d features" % len(f_list))
+
+        def _draw_features(f_list, color=None):
+            """
+            Draw f_lists's points in both images, indicated color or different colors.
+            Draw each line between corresponding points in the same color as the point in the first image.
+            """
+            c1_inds = list(set([f[0] for f in f_list]))
+
+            if sample_inds is None:
+                # Draw corners in image 1 in all colors
+                points = [axis.plot(*corner_coord, 'o', markersize=CORNER_MARKERSIZE)[0]
+                          for corner_coord in self.corners_1]
+                point_colors = {i: point.get_color() for i, point in enumerate(points)}
+
+                # Draw corners in image 2 in red
+                axis.plot(self.corners_2[:, 0] + x_offset,
+                          self.corners_2[:, 1], 'o', markersize=CORNER_MARKERSIZE, color='r')
+            else:
+                # Draw corners in image 1 green if not in the sample,
+                other_inds = [i for i in range(len(self.corners_1)) if i not in c1_inds]
+                [axis.plot(*self.corners_1[c, :], 'o', color='g', markersize=CORNER_MARKERSIZE)[0] for c in other_inds]
+                # and sample points in red
+                _ = [axis.plot(*self.corners_1[c, :], 'o', markersize=CORNER_MARKERSIZE, color='r')[0] for c in c1_inds]
+                point_colors = {c1_inds[i]: 'r' for i in range(len(c1_inds))}
+                point_colors.update({other_inds[i]: 'g' for i in range(len(other_inds))})
+
+                # Draw corners in image 2 in red/green similarly
+                c2_inds = list(set([f[1] for f in f_list]))
+                c2_other_inds = [i for i in range(len(self.corners_2)) if i not in c2_inds]
+                [axis.plot(self.corners_2[c, 0] + x_offset, self.corners_2[c, 1], 'o', color='g', markersize=CORNER_MARKERSIZE)[0]
+                    for c in c2_other_inds]
+                _ = [axis.plot(self.corners_2[c, 0] + x_offset, self.corners_2[c, 1], 'o', markersize=CORNER_MARKERSIZE, color='r')[0]
+                     for c in c2_inds]
+
+            # and draw the line:
+            for (c_ind_1, c_ind_2) in f_list:
+                c1, c2 = self.corners_1[c_ind_1], self.corners_2[c_ind_2]
+                print(c1, c2)
+                axis.plot([c1[0], c2[0] + x_offset], [c1[1], c2[1]], color=point_colors[c_ind_1], linewidth=LINEWIDTH)
+
+        if sample_inds is not None:
+            features = [self._features[i] for i in sample_inds]
+            _draw_features(features, color='g')
+            title = "Minimum feature sample, 3 random correspondences "
+        else:
+
+            _draw_features(self._features)
+            title = "All corner correspondences (features) with match score > %.3f" % self._m_threshold
+        axis.set_title(title)
+        axis.axis('off')
 
 
 class RansacAffine(RansacModel):
@@ -81,51 +172,44 @@ class RansacAffine(RansacModel):
     """
 
     def __init__(self, data, inlier_threshold, training_inds, iter=None):
+        """
+        Initialize the model with the given features.
+        :param data: RansacImageData object containing the data & extracted features.
+        :param inlier_threshold: threshold for inliers (will depend on implementation of RansacModel.evaluate)
+        :param training_inds: list of indices of the features used to fit this RansacModel.
+        :param iter: iteration number, for bookkeeping
+        """
         self._training_inds = training_inds
         super().__init__(data, inlier_threshold, training_inds, iter)
         self._fig, self._ax = None, None
 
-    @staticmethod
-    def _get_ptarrs_from_pairs(point_pair_list=None, feature_mask=None):
-        """
-        Extract the coordinates of the features one way or the other.
-        :param point_pair_list: a list of pairs of points in 2d.
-        :param feature_mask: a boolean array indicating which of self.features to use.
-        """
-        if point_pair_list is not None:
-            src_pts = np.array([f[0] for f in point_pair_list])
-            dst_pts = np.array([f[1] for f in point_pair_list])
-        elif feature_mask is not None:
-            return RansacAffine._get_ptarrs_from_pairs([f for i, f in enumerate(self.features) if feature_mask[i]])
+    def _corner_coords_from_inds(self, feature_inds):
+        train_features = self.data.get_features(indices=feature_inds)
+        src_pts = np.array([self.data.corners_1[f[0]] for f in train_features])
+        dst_pts = np.array([self.data.corners_2[f[1]] for f in train_features])
         return src_pts, dst_pts
 
     def _fit(self):
         """
-        Fit an affine transform to subset of features, score all featues, find in/outliers.
+        Fit an affine transform to this model's training data, score all featues, find in/outliers.
         """
         # Extract the coordinates of the features
-        train_features = [self.features[i] for i in self._training_inds]
-        src_pts = np.array([f[0] for f in train_features])
-        dst_pts = np.array([f[1] for f in train_features])
+        src_pts, dst_pts = self._corner_coords_from_inds(self._training_inds)
+        self._model_params = Affine.from_point_pairs(src_pts, dst_pts)
+        scores = self._get_feature_scores()
+        self.inlier_mask = scores < self.thresh
 
-        # Fit an affine transform
-        self._model_params = fit_affine_transform(src_pts, dst_pts)
-
-    def _evaluate(self, point_pair_list):
+    def _get_feature_scores(self):
         """
-        Evaluate the model on each feature.
-        (distance between transformed source point and destination point)
-
-        :param features: a list of pairs of points in 2d.
-        :returns: an array of errors, one for each feature
+        Score all features (possible pairs of corners).
         """
-        # Extract the coordinates of the features
-        src_pts = np.array([f[0] for f in point_pair_list])
-        dst_pts = np.array([f[1] for f in point_pair_list])
-
-        transformed_pts = cv2.transform(src_pts[None, :, :], self._model)
-        errors = np.linalg.norm(transformed_pts[0] - dst_pts, axis=1)
-        return errors
+        src_inds = [f[0] for f in self.data.get_features()]
+        dest_inds = [f[1] for f in self.data.get_features()]
+        src_pts = np.array([self.data.corners_1[i] for i in src_inds])
+        dst_pts = np.array([self.data.corners_2[i] for i in dest_inds])
+        moved_src_pts = self._model_params.apply(src_pts)
+        distances = np.linalg.norm(moved_src_pts - dst_pts, axis=1)
+        return distances
 
     @classmethod
     def animate_setup(cls):
@@ -133,6 +217,37 @@ class RansacAffine(RansacModel):
         Set up the animation for plotting each iteration.
         """
         cls._FIG, cls._AXES = plt.subplots(2, 2)
+
+    def plot_induced_transform(self, axis, which='gray'):
+        """
+        Draw two images, side-by-side:
+            left:  Grayscale image1, bounding box (i.e. corners of image transformed to image1 space) of image 2 in green.
+            right: Grayscale image2, detected corners in image 2,  detected corners of image1 transformed to image 2 space and plotted.
+        """
+        img1, img2 = self.data
+        if which == 'gray':
+            axis[0].imshow(img1.gray, cmap='gray')
+            axis[1].imshow(img2.gray, cmap='gray')
+        else:
+            axis[0].imshow(img1.color)
+            axis[1].imshow(img2.color)
+
+        # draw the bounding box of image 2 in image 1 space
+        img2_corners = np.array([[0, 0], [0, img2.gray.shape[1]], [img2.gray.shape[0], img2.gray.shape[1]],
+                                 [img2.gray.shape[0], 0]])
+        img2_corners = cv2.transform(img2_corners[None, :, :], self._model)[0]
+        axis[0].plot(img2_corners[:, 1], img2_corners[:, 0], 'g-')
+
+        # draw the transformed corners of image 1 in image 2 space
+        img1_corners = np.array([[0, 0], [0, img1.gray.shape[1]], [img1.gray.shape[0], img1.gray.shape[1]],
+                                 [img1.gray.shape[0], 0]])
+        img1_corners = cv2.transform(img1_corners[None, :, :], self._model)[0]
+        axis[1].plot(img1_corners[:, 1], img1_corners[:, 0], 'g-')
+
+        axis[0].set_title('Image 1 with bounding box of image 2')
+        axis[1].set_title('Image 2 with transformed corners of image 1')
+        axis[0].axis('off')
+        axis[1].axis('off')
 
     def plot_iteration(self, data, current_model, best_model, which='gray', is_final=False):
         """
@@ -177,3 +292,34 @@ class RansacAffine(RansacModel):
         ax.plot([c[1] for c in model._features], [c[0] for c in model._features], 'bo')
         ax.set_title('Image 1 with corners and sample points')
         ax.axis('off')
+
+
+def _test_ransac_image_data(plot=False):
+    # params
+
+    matcher_threshold = 0.4
+    size = 500, 500
+    noise_level = 0.1
+    args = dict(blockSize=8,
+                ksize=23,
+                k=0.045)
+
+    # data
+    img1 = TestImage(size)
+    img2, _ = img1.transform(noise_level)
+    data = (img1, img2)
+
+    ransac_data = RansacImageData(data, harris_kwargs=args, matcher_threshold=matcher_threshold)
+    if plot:
+        plt.ion()
+        fig, ax = plt.subplots(1)
+        ransac_data.plot_features(ax, draw_image='color')
+        fig, ax = plt.subplots(1)
+        ransac_data.plot_features(ax, sample_inds=np.random.choice(ransac_data.get_n_features(), 3, replace=False))
+        plt.show()
+        plt.pause(0)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    _test_ransac_image_data(plot=True)

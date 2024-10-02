@@ -68,11 +68,14 @@ class RansacModel(ABC):
         self.iter = iter
         self.thresh = inlier_threshold
         self.data = data
-        # boolean array of the features used to fit the model
+        
         self.sample_mask = np.zeros(data.get_n_features(), dtype=bool)
         self.sample_mask[training_inds] = 1
-        self.inlier_mask = None  # boolean array, which of self.data._features is an inlier
+        
+        # these set by _fit:
+        self.inlier_mask = None  # boolean array, which of self.data._features is an inlier 
         self._model_params = None
+
         self._check_params()
 
         self._fit()
